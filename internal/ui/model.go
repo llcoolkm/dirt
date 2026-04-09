@@ -55,13 +55,12 @@ type Model struct {
 	// host info — fetched once at startup, immutable thereafter.
 	host lv.HostInfo
 
-	// host dynamic stats — refreshed every tick. We keep the previous sample
-	// so we can compute CPU% as a delta. cpuHist is the rolling sparkline.
-	hostStats     lv.HostStats
-	hostStatsPrev lv.HostStats
-	hostCPUPct    float64
-	hostCPUHist   []float64
-	hostHasStats  bool
+	// host dynamic stats — refreshed every tick. We keep the most recent
+	// sample so we can compute CPU% as a delta on the next arrival.
+	hostStats    lv.HostStats
+	hostCPUPct   float64
+	hostCPUHist  []float64
+	hostHasStats bool
 
 	// Layout.
 	width, height int
@@ -75,13 +74,14 @@ type Model struct {
 	filter    string
 
 	// Detail view state.
+	detailFor       string   // domain name we're showing detail for
 	detailXML       string
 	detailLines     []string // cached line-split of detailXML
 	detailScroll    int
-	detailSearch    string // active search query (empty = none)
-	detailSearching bool   // currently typing into the / prompt
-	detailMatches   []int  // line indices matching detailSearch
-	detailMatchIdx  int    // index into detailMatches for current cursor
+	detailSearch    string   // active search query (empty = none)
+	detailSearching bool     // currently typing into the / prompt
+	detailMatches   []int    // line indices matching detailSearch
+	detailMatchIdx  int      // index into detailMatches for current cursor
 
 	// Snapshot view state.
 	snapshotsFor  string              // domain name we're showing snapshots for
@@ -356,22 +356,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case hostStatsLoadedMsg:
 		if msg.err == nil {
-			// Compute CPU% from delta against previous sample.
+			// Compute CPU% from delta against the *immediately* previous sample
+			// (which is currently in m.hostStats — we have not overwritten it yet).
 			if m.hostHasStats {
-				dTotal := float64(msg.stats.CPUTotal() - m.hostStatsPrev.CPUTotal())
-				dActive := float64(msg.stats.CPUActive() - m.hostStatsPrev.CPUActive())
+				dTotal := float64(msg.stats.CPUTotal() - m.hostStats.CPUTotal())
+				dActive := float64(msg.stats.CPUActive() - m.hostStats.CPUActive())
 				if dTotal > 0 {
 					m.hostCPUPct = dActive / dTotal * 100
 					m.hostCPUHist = appendCap(m.hostCPUHist, m.hostCPUPct, historyWindow)
 				}
 			}
-			m.hostStatsPrev = m.hostStats
 			m.hostStats = msg.stats
 			m.hostHasStats = true
 		}
 		return m, nil
 
 	case snapshotsLoadedMsg:
+		// Discard stale results that arrive after the user switched VMs.
+		if msg.domain != m.snapshotsFor {
+			return m, nil
+		}
 		m.snapshots = msg.list
 		m.snapshotsErr = msg.err
 		if m.snapshotsSel >= len(m.snapshots) {
@@ -405,6 +409,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case volumesLoadedMsg:
+		// Discard stale results that arrive after the user switched pools.
+		if msg.pool != m.volumesFor {
+			return m, nil
+		}
 		m.volumes = msg.list
 		m.volumesErr = msg.err
 		if m.volumesSel >= len(m.volumes) {
@@ -441,6 +449,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case detailLoadedMsg:
+		// Discard stale results from a previously-opened detail view.
+		if msg.name != m.detailFor {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.flashf("✗ load detail %s: %v", msg.name, msg.err)
 			m.mode = viewMain
@@ -460,23 +472,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey routes keypresses based on current mode.
+// handleKey routes keypresses based on current mode. Mode-specific handlers
+// run first because they own their own confirm/input sub-states (e.g. snapshot
+// view has its own confirm dialog for revert/delete). The global confirming /
+// filtering / commanding states only apply to the main VM list view.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case viewDetail:
+		return m.handleDetailKey(msg)
+	case viewSnapshots:
+		return m.handleSnapshotsKey(msg)
+	case viewNetworks:
+		return m.handleNetworksKey(msg)
+	case viewPools:
+		return m.handlePoolsKey(msg)
+	case viewVolumes:
+		return m.handleVolumesKey(msg)
+	}
 	switch {
 	case m.confirming:
 		return m.handleConfirmKey(msg)
 	case m.filtering:
 		return m.handleFilterKey(msg)
-	case m.mode == viewDetail:
-		return m.handleDetailKey(msg)
-	case m.mode == viewSnapshots:
-		return m.handleSnapshotsKey(msg)
-	case m.mode == viewNetworks:
-		return m.handleNetworksKey(msg)
-	case m.mode == viewPools:
-		return m.handlePoolsKey(msg)
-	case m.mode == viewVolumes:
-		return m.handleVolumesKey(msg)
 	case m.commanding:
 		return m.handleCommandKey(msg)
 	default:
@@ -574,7 +591,9 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", "d":
 		if d, ok := m.currentDomain(); ok {
 			m.mode = viewDetail
+			m.detailFor = d.Name
 			m.detailXML = "(loading…)"
+			m.detailLines = []string{m.detailXML}
 			return m, loadDetailCmd(m.client, d.Name)
 		}
 		return m, nil
