@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,7 +14,23 @@ import (
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
+// When unset (the default for `go install`), we fall back to the module
+// version embedded in the binary by the Go toolchain.
 var version = "dev"
+
+// resolveVersion returns the build-time version if it was injected, otherwise
+// the module version recorded by `go install` / `go build`.
+func resolveVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if v := info.Main.Version; v != "" && v != "(devel)" {
+			return v
+		}
+	}
+	return version
+}
 
 func main() {
 	var (
@@ -29,7 +46,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("dirt %s\n", version)
+		fmt.Printf("dirt %s\n", resolveVersion())
 		return
 	}
 
