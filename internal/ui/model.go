@@ -16,6 +16,19 @@ import (
 // defaultRefreshInterval is the fall-back tick rate when none is configured.
 const defaultRefreshInterval = 2 * time.Second
 
+// viewMode is the high-level UI state — which screen the user is currently on.
+type viewMode int
+
+const (
+	viewMain      viewMode = iota // VM list (default)
+	viewDetail                    // XML detail of selected VM
+	viewHelp                      // help modal
+	viewSnapshots                 // snapshots of selected VM
+	viewNetworks                  // libvirt networks
+	viewPools                     // storage pools
+	viewVolumes                   // volumes inside selected pool
+)
+
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
 // re-querying QGA. We refresh on tick if older than this.
 const swapTTL = 5 * time.Second
@@ -26,6 +39,9 @@ type Model struct {
 
 	// refreshInterval controls the snapshot tick rate. Set via WithRefreshInterval.
 	refreshInterval time.Duration
+
+	// mode is the current high-level UI state.
+	mode viewMode
 
 	snap *lv.Snapshot
 	err  error
@@ -46,12 +62,11 @@ type Model struct {
 	selected int
 	offset   int // first visible row
 
-	// Filter mode.
+	// Filter mode (for the main VM list).
 	filtering bool
 	filter    string
 
-	// Detail mode.
-	detailMode      bool
+	// Detail view state.
 	detailXML       string
 	detailLines     []string // cached line-split of detailXML
 	detailScroll    int
@@ -59,6 +74,18 @@ type Model struct {
 	detailSearching bool   // currently typing into the / prompt
 	detailMatches   []int  // line indices matching detailSearch
 	detailMatchIdx  int    // index into detailMatches for current cursor
+
+	// Snapshot view state.
+	snapshotsFor  string                // domain name we're showing snapshots for
+	snapshots     []lv.DomainSnapshot   // current list
+	snapshotsErr  error                 // last load error
+	snapshotsSel  int                   // selected snapshot index
+	snapshotInput bool                  // typing a name for a new snapshot
+	snapshotName  string                // text being typed for the new name
+
+	// Command palette state (entered via `:`).
+	commanding bool   // currently typing a `:` command
+	command    string // text being typed
 
 	// Confirm dialog (for destructive actions).
 	confirming    bool
@@ -68,9 +95,6 @@ type Model struct {
 	// Transient flash message in the status bar.
 	flash      string
 	flashUntil time.Time
-
-	// Help modal.
-	showHelp bool
 
 	// Column sort. sortColumn indexes into the list's sortable columns.
 	sortColumn sortColumn
@@ -151,6 +175,12 @@ type hostLoadedMsg struct {
 	err  error
 }
 
+type snapshotsLoadedMsg struct {
+	domain string
+	list   []lv.DomainSnapshot
+	err    error
+}
+
 type swapMsg struct {
 	name string
 	info lv.SwapInfo
@@ -186,6 +216,13 @@ func loadHostCmd(c *lv.Client) tea.Cmd {
 	return func() tea.Msg {
 		h, err := c.Host()
 		return hostLoadedMsg{host: h, err: err}
+	}
+}
+
+func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
+	return func() tea.Msg {
+		list, err := c.ListSnapshots(domain)
+		return snapshotsLoadedMsg{domain: domain, list: list, err: err}
 	}
 }
 
@@ -235,19 +272,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case snapshotsLoadedMsg:
+		m.snapshots = msg.list
+		m.snapshotsErr = msg.err
+		if m.snapshotsSel >= len(m.snapshots) {
+			m.snapshotsSel = len(m.snapshots) - 1
+		}
+		if m.snapshotsSel < 0 {
+			m.snapshotsSel = 0
+		}
+		return m, nil
+
 	case actionResultMsg:
 		if msg.err != nil {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
 		} else {
 			m.flashf("✓ %s %s", msg.action, msg.name)
 		}
-		// Refresh immediately after a successful action.
-		return m, loadCmd(m.client)
+		// Refresh immediately after a successful action. If we're in the
+		// snapshots view, also reload the snapshot list.
+		cmds := []tea.Cmd{loadCmd(m.client)}
+		if m.mode == viewSnapshots && m.snapshotsFor != "" {
+			cmds = append(cmds, loadSnapshotsCmd(m.client, m.snapshotsFor))
+		}
+		return m, tea.Batch(cmds...)
 
 	case detailLoadedMsg:
 		if msg.err != nil {
 			m.flashf("✗ load detail %s: %v", msg.name, msg.err)
-			m.detailMode = false
+			m.mode = viewMain
 			return m, nil
 		}
 		m.detailXML = msg.xml
@@ -271,8 +324,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	case m.filtering:
 		return m.handleFilterKey(msg)
-	case m.detailMode:
+	case m.mode == viewDetail:
 		return m.handleDetailKey(msg)
+	case m.mode == viewSnapshots:
+		return m.handleSnapshotsKey(msg)
+	case m.commanding:
+		return m.handleCommandKey(msg)
 	default:
 		return m.handleNormalKey(msg)
 	}
@@ -280,10 +337,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Help modal swallows everything except its own dismiss keys.
-	if m.showHelp {
+	if m.mode == viewHelp {
 		switch msg.String() {
 		case "?", "esc", "q":
-			m.showHelp = false
+			m.mode = viewMain
 		}
 		return m, nil
 	}
@@ -295,7 +352,12 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "?":
-		m.showHelp = true
+		m.mode = viewHelp
+		return m, nil
+
+	case ":":
+		m.commanding = true
+		m.command = ""
 		return m, nil
 
 	// Sort by column. Same key again toggles direction.
@@ -362,7 +424,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter", "d":
 		if d, ok := m.currentDomain(); ok {
-			m.detailMode = true
+			m.mode = viewDetail
 			m.detailXML = "(loading…)"
 			return m, loadDetailCmd(m.client, d.Name)
 		}
@@ -476,11 +538,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.detailMatchIdx = 0
 			return m, nil
 		}
-		m.detailMode = false
+		m.mode = viewMain
 		return m, nil
 
 	case "enter":
-		m.detailMode = false
+		m.mode = viewMain
 		return m, nil
 
 	case "j", "down":
@@ -728,6 +790,192 @@ func (m *Model) boundSelection() {
 func (m *Model) flashf(format string, args ...any) {
 	m.flash = fmt.Sprintf(format, args...)
 	m.flashUntil = time.Now().Add(3 * time.Second)
+}
+
+// handleCommandKey handles keypresses while typing a `:` command.
+func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.commanding = false
+		m.command = ""
+		return m, nil
+	case "enter":
+		cmd := strings.TrimSpace(m.command)
+		m.commanding = false
+		m.command = ""
+		return m.execCommand(cmd)
+	case "backspace":
+		if len(m.command) > 0 {
+			m.command = m.command[:len(m.command)-1]
+		}
+		return m, nil
+	default:
+		if len(msg.String()) == 1 {
+			m.command += msg.String()
+		}
+		return m, nil
+	}
+}
+
+// execCommand interprets a `:` command and switches view mode.
+func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
+	switch cmd {
+	case "":
+		return m, nil
+	case "q", "quit":
+		return m, tea.Quit
+	case "h", "help":
+		m.mode = viewHelp
+		return m, nil
+	case "vm", "vms", "domain", "domains":
+		m.mode = viewMain
+		return m, nil
+	case "snap", "snapshot", "snapshots":
+		d, ok := m.currentDomain()
+		if !ok {
+			m.flashf("no domain selected")
+			return m, nil
+		}
+		m.mode = viewSnapshots
+		m.snapshotsFor = d.Name
+		m.snapshotsSel = 0
+		m.snapshots = nil
+		return m, loadSnapshotsCmd(m.client, d.Name)
+	case "net", "network", "networks":
+		m.flashf("networks view: not yet (v0.3)")
+		return m, nil
+	case "pool", "pools":
+		m.flashf("pools view: not yet (v0.3)")
+		return m, nil
+	}
+	m.flashf("unknown command: %s", cmd)
+	return m, nil
+}
+
+// handleSnapshotsKey handles keypresses while in the snapshots view.
+func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirming {
+		return m.handleSnapshotConfirmKey(msg)
+	}
+	if m.snapshotInput {
+		return m.handleSnapshotInputKey(msg)
+	}
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = viewMain
+		return m, nil
+	case "j", "down":
+		if m.snapshotsSel < len(m.snapshots)-1 {
+			m.snapshotsSel++
+		}
+		return m, nil
+	case "k", "up":
+		if m.snapshotsSel > 0 {
+			m.snapshotsSel--
+		}
+		return m, nil
+	case "g", "home":
+		m.snapshotsSel = 0
+		return m, nil
+	case "G", "end":
+		if len(m.snapshots) > 0 {
+			m.snapshotsSel = len(m.snapshots) - 1
+		}
+		return m, nil
+	case "c":
+		// Begin "create" input prompt.
+		m.snapshotInput = true
+		m.snapshotName = ""
+		return m, nil
+	case "r":
+		// Revert (with confirm).
+		if s, ok := m.currentSnapshot(); ok {
+			m.confirming = true
+			m.confirmAction = "revert"
+			m.confirmName = s.Name
+		}
+		return m, nil
+	case "D", "x":
+		// Delete (with confirm).
+		if s, ok := m.currentSnapshot(); ok {
+			m.confirming = true
+			m.confirmAction = "delete-snap"
+			m.confirmName = s.Name
+		}
+		return m, nil
+	case "R", "F5":
+		return m, loadSnapshotsCmd(m.client, m.snapshotsFor)
+	}
+	return m, nil
+}
+
+func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.snapshotInput = false
+		m.snapshotName = ""
+		return m, nil
+	case "enter":
+		name := strings.TrimSpace(m.snapshotName)
+		m.snapshotInput = false
+		m.snapshotName = ""
+		domain := m.snapshotsFor
+		return m, tea.Batch(
+			func() tea.Msg {
+				err := m.client.CreateSnapshot(domain, name, "")
+				return actionResultMsg{action: "create-snap", name: name, err: err}
+			},
+		)
+	case "backspace":
+		if len(m.snapshotName) > 0 {
+			m.snapshotName = m.snapshotName[:len(m.snapshotName)-1]
+		}
+		return m, nil
+	default:
+		if len(msg.String()) == 1 {
+			m.snapshotName += msg.String()
+		}
+		return m, nil
+	}
+}
+
+func (m Model) handleSnapshotConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		name := m.confirmName
+		action := m.confirmAction
+		domain := m.snapshotsFor
+		m.confirming = false
+		m.confirmName = ""
+		m.confirmAction = ""
+		switch action {
+		case "revert":
+			return m, func() tea.Msg {
+				err := m.client.RevertSnapshot(domain, name)
+				return actionResultMsg{action: "revert", name: name, err: err}
+			}
+		case "delete-snap":
+			return m, func() tea.Msg {
+				err := m.client.DeleteSnapshot(domain, name)
+				return actionResultMsg{action: "delete-snap", name: name, err: err}
+			}
+		}
+		return m, nil
+	default:
+		m.confirming = false
+		m.confirmName = ""
+		m.confirmAction = ""
+		m.flash = "cancelled"
+		m.flashUntil = time.Now().Add(2 * time.Second)
+		return m, nil
+	}
+}
+
+func (m Model) currentSnapshot() (lv.DomainSnapshot, bool) {
+	if m.snapshotsSel < 0 || m.snapshotsSel >= len(m.snapshots) {
+		return lv.DomainSnapshot{}, false
+	}
+	return m.snapshots[m.snapshotsSel], true
 }
 
 // detailBodyHeight returns the number of XML lines visible in the detail pane.

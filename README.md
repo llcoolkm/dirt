@@ -115,6 +115,25 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |
 | `x` | undefine — delete a stopped VM (asks `y` to confirm) |
 
+### Command palette & view switching (k9s style)
+| Key | Action |
+|-----|--------|
+| `:` | open command palette |
+| `:snap` | snapshots of selected VM |
+| `:vm` | back to VM list |
+| `:help` | open help screen |
+| `:q` | quit |
+
+### Snapshots view
+| Key | Action |
+|-----|--------|
+| `j` / `k` | navigate snapshots |
+| `c` | create snapshot (prompts for name) |
+| `r` | revert to snapshot (asks `y` to confirm) |
+| `D` / `x` | delete snapshot (asks `y` to confirm) |
+| `R` / `F5` | refresh list |
+| `esc` / `q` | back to VM list |
+
 ### Detail view
 | Key | Action |
 |-----|--------|
@@ -195,7 +214,6 @@ dirt/
 
 ## Caveats and known limits
 
-- **No snapshot management yet** (create / list / restore / delete) — planned for v0.2
 - **Networks / storage pools / volumes** views — not yet, planned for v0.3
 - **Single host** — multi-host switching is not yet, but `--uri` / `LIBVIRT_DEFAULT_URI` works for any single libvirt endpoint
 - **Memory bar accuracy** depends on the guest's balloon driver. Without one, falls back to allocated memory (which always reads as 100% in libvirt's eyes)

@@ -20,12 +20,13 @@ func (m Model) View() string {
 		return m.splashView()
 	}
 
-	if m.showHelp {
+	switch m.mode {
+	case viewHelp:
 		return m.helpView()
-	}
-
-	if m.detailMode {
+	case viewDetail:
 		return m.detailView()
+	case viewSnapshots:
+		return m.snapshotsView()
 	}
 
 	parts := []string{
@@ -69,6 +70,13 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt)
 	}
 
+	// Command palette.
+	if m.commanding {
+		prompt := keyHint.Render(":") + m.command + lipgloss.NewStyle().Foreground(colAccent).Render("█") +
+			headerLabel.Render("    (try snap, vm, help, q)")
+		return statusBar.Width(width).Render(" " + prompt)
+	}
+
 	// Confirm dialog takes precedence after filter.
 	if m.confirming {
 		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s %s? ", m.confirmAction, m.confirmName)) +
@@ -92,9 +100,10 @@ func (m Model) shortHelp() string {
 		key("S") + " stop",
 		key("D") + " kill",
 		key("r") + " reboot",
-		key("p") + " pause",
 		key("c") + " console",
+		key("e") + " edit",
 		key("⏎") + " detail",
+		key(":") + " cmd",
 		key("/") + " filter",
 		key("?") + " help",
 		key("q") + " quit",

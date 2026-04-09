@@ -58,6 +58,29 @@ func (m Model) helpView() string {
 				{"p", "pause"},
 				{"R", "resume from pause"},
 				{"c", "open serial console (Ctrl-] to detach)"},
+				{"e", "edit XML in $EDITOR (virsh edit)"},
+				{"x", "undefine — delete a stopped VM (asks y)"},
+			},
+		},
+		{
+			title: "Command palette & Views",
+			rows: []helpRow{
+				{":", "open command palette"},
+				{":snap", "snapshots of selected VM"},
+				{":vm", "back to VM list"},
+				{":help", "this help screen"},
+				{":q", "quit"},
+			},
+		},
+		{
+			title: "Snapshots view",
+			rows: []helpRow{
+				{"j / k", "navigate snapshots"},
+				{"c", "create snapshot (prompts for name)"},
+				{"r", "revert to snapshot (asks y)"},
+				{"D / x", "delete snapshot (asks y)"},
+				{"R / F5", "refresh list"},
+				{"esc / q", "back to VM list"},
 			},
 		},
 		{

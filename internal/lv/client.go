@@ -441,6 +441,125 @@ func parseMeminfoSwap(s string) (totalKB, freeKB uint64) {
 	return
 }
 
+// DomainSnapshot represents one libvirt domain snapshot, copied out of the
+// C handle. (Distinct from Snapshot, which is a sample of the whole host.)
+type DomainSnapshot struct {
+	Name      string
+	Parent    string
+	State     string // running, shutoff, paused, …
+	CreatedAt time.Time
+	IsCurrent bool
+	Desc      string
+}
+
+// snapshotXML is the minimal XML schema we parse out of GetXMLDesc.
+type snapshotXML struct {
+	Name         string `xml:"name"`
+	Description  string `xml:"description"`
+	State        string `xml:"state"`
+	CreationTime int64  `xml:"creationTime"`
+	Parent       struct {
+		Name string `xml:"name"`
+	} `xml:"parent"`
+}
+
+// ListSnapshots returns all snapshots of the named domain.
+func (c *Client) ListSnapshots(name string) ([]DomainSnapshot, error) {
+	var out []DomainSnapshot
+	err := c.withDomain(name, func(d *libvirt.Domain) error {
+		snaps, err := d.ListAllSnapshots(0)
+		if err != nil {
+			return err
+		}
+		// Determine which snapshot is current.
+		curName := ""
+		if cur, err := d.SnapshotCurrent(0); err == nil {
+			if n, e := cur.GetName(); e == nil {
+				curName = n
+			}
+			_ = cur.Free()
+		}
+		for i := range snaps {
+			s := &snaps[i]
+			x, err := s.GetXMLDesc(0)
+			if err != nil {
+				_ = s.Free()
+				continue
+			}
+			var sx snapshotXML
+			_ = xml.Unmarshal([]byte(x), &sx)
+			out = append(out, DomainSnapshot{
+				Name:      sx.Name,
+				Parent:    sx.Parent.Name,
+				State:     sx.State,
+				CreatedAt: time.Unix(sx.CreationTime, 0),
+				IsCurrent: sx.Name == curName,
+				Desc:      sx.Description,
+			})
+			_ = s.Free()
+		}
+		return nil
+	})
+	return out, err
+}
+
+// CreateSnapshot creates a new snapshot on the named domain. If snapName is
+// empty, libvirt assigns a timestamp-based default name.
+func (c *Client) CreateSnapshot(domain, snapName, description string) error {
+	return c.withDomain(domain, func(d *libvirt.Domain) error {
+		x := "<domainsnapshot>"
+		if snapName != "" {
+			x += "<name>" + xmlEscape(snapName) + "</name>"
+		}
+		if description != "" {
+			x += "<description>" + xmlEscape(description) + "</description>"
+		}
+		x += "</domainsnapshot>"
+		s, err := d.CreateSnapshotXML(x, 0)
+		if err != nil {
+			return err
+		}
+		_ = s.Free()
+		return nil
+	})
+}
+
+// RevertSnapshot reverts the named domain to the named snapshot.
+func (c *Client) RevertSnapshot(domain, snapName string) error {
+	return c.withDomain(domain, func(d *libvirt.Domain) error {
+		s, err := d.SnapshotLookupByName(snapName, 0)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = s.Free() }()
+		return s.RevertToSnapshot(0)
+	})
+}
+
+// DeleteSnapshot removes the named snapshot.
+func (c *Client) DeleteSnapshot(domain, snapName string) error {
+	return c.withDomain(domain, func(d *libvirt.Domain) error {
+		s, err := d.SnapshotLookupByName(snapName, 0)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = s.Free() }()
+		return s.Delete(0)
+	})
+}
+
+// xmlEscape is a tiny escape helper for the snapshot XML payload.
+func xmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&apos;",
+	)
+	return r.Replace(s)
+}
+
 // XMLDesc returns the live XML description of the domain.
 func (c *Client) XMLDesc(name string) (string, error) {
 	var out string

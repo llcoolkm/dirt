@@ -33,6 +33,28 @@ func main() {
 	}
 	fmt.Printf("\n%d domains total\n\n", len(snap.Domains))
 
+	// Snapshot probe — list snapshots of every running domain.
+	fmt.Println("Snapshot probe:")
+	for _, d := range snap.Domains {
+		if d.State.String() != "running" {
+			continue
+		}
+		snaps, err := c.ListSnapshots(d.Name)
+		if err != nil {
+			fmt.Printf("  %-20s err: %v\n", d.Name, err)
+			continue
+		}
+		fmt.Printf("  %-20s %d snapshots\n", d.Name, len(snaps))
+		for _, s := range snaps {
+			cur := ""
+			if s.IsCurrent {
+				cur = " *current*"
+			}
+			fmt.Printf("    - %s  state=%s  parent=%s%s\n", s.Name, s.State, s.Parent, cur)
+		}
+	}
+	fmt.Println()
+
 	// QGA swap probe — try every running domain and report.
 	fmt.Println("QGA swap probe:")
 	for _, d := range snap.Domains {
