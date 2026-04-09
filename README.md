@@ -1,24 +1,14 @@
-# dirt — David's virtual UI
+# dirt — David's libvirt TUI
 
-A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, in
-the htop visual tradition.
+A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, taking inspiration from htop.
 
 ![dirt screenshot](docs/screenshot.png)
 
-`dirt` is a single-binary Go program built on
-[Bubble Tea](https://github.com/charmbracelet/bubbletea),
-[lipgloss](https://github.com/charmbracelet/lipgloss), and the
-[official libvirt-go bindings](https://gitlab.com/libvirt/libvirt-go-module).
-It connects to your local (or remote) libvirt daemon and gives you a live,
-keyboard-driven view of every domain — with htop-style CPU and memory bars,
-disk and network sparklines, and full lifecycle control from a single keypress.
+`dirt` is a single-binary Go program built on [Bubble Tea](https://github.com/charmbracelet/bubbletea), [lipgloss](https://github.com/charmbracelet/lipgloss), and the [official libvirt-go bindings](https://gitlab.com/libvirt/libvirt-go-module). It connects to your local (or remote) libvirt daemon and gives you a live, vim-lite keyboard-driven view of every domain — with CPU and memory bars, disk and network sparklines, and full lifecycle control from a single keypress.
 
 ## Why it exists
 
-There is no k9s-equivalent for libvirt. The choices are `virt-manager` (a GTK
-GUI), `virt-top` (a one-screen monitor with no actions), or hand-typed `virsh`
-incantations. `dirt` bridges the gap: an interactive, keyboard-first TUI that
-treats domains the way k9s treats pods.
+I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with Claude Code on my phone while having breakfast. Loads more features planned for handling network, storage, snapshots, etc.
 
 ## Features
 
@@ -45,8 +35,7 @@ treats domains the way k9s treats pods.
 - Go 1.21+ to build
 - libvirt headers installed (`apt install libvirt-dev pkg-config` on Debian/Ubuntu)
 
-For full feature coverage, install `qemu-guest-agent` inside guests where you
-want **swap usage** (otherwise only swap *activity* is shown).
+For full feature coverage, install `qemu-guest-agent` inside guests where you want **swap usage** (otherwise only swap *activity* is shown).
 
 ## Installation
 
@@ -139,12 +128,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 
 ### Memory (always available)
 
-`dirt` calls `virConnectGetAllDomainStats` once per refresh, which gives a
-batched read of CPU, balloon, block, and interface stats for every running
-domain in a single round-trip. Crucially, on first sight of each running
-domain `dirt` issues `virDomainSetMemoryStatsPeriod(2, DOMAIN_MEM_LIVE)` so
-the QEMU balloon driver pushes fresh stats every 2 seconds. Without this,
-balloon stats default to *on demand*, which makes the cache values stale.
+`dirt` calls `virConnectGetAllDomainStats` once per refresh, which gives a batched read of CPU, balloon, block, and interface stats for every running domain in a single round-trip. Crucially, on first sight of each running domain `dirt` issues `virDomainSetMemoryStatsPeriod(2, DOMAIN_MEM_LIVE)` so the QEMU balloon driver pushes fresh stats every 2 seconds. Without this, balloon stats default to *on demand*, which makes the cache values stale.
 
 Used / cache / free are computed as:
 
@@ -158,15 +142,9 @@ free  = unused
 
 ### Swap (requires qemu-guest-agent)
 
-The libvirt balloon driver only exposes cumulative `swap_in` / `swap_out` page
-counters — useful for *activity* but not *usage*. Real swap totals require
-running code inside the guest.
+The libvirt balloon driver only exposes cumulative `swap_in` / `swap_out` page counters — useful for *activity* but not *usage*. Real swap totals require running code inside the guest.
 
-When `qemu-guest-agent` is installed and the virtio-serial channel is wired
-up, `dirt` calls `guest-exec /usr/bin/cat /proc/meminfo` via
-`virDomainQemuAgentCommand`, polls `guest-exec-status` until the cat exits,
-base64-decodes the output, and parses `SwapTotal` / `SwapFree` to draw a
-proper usage bar.
+When `qemu-guest-agent` is installed and the virtio-serial channel is wired up, `dirt` calls `guest-exec /usr/bin/cat /proc/meminfo` via `virDomainQemuAgentCommand`, polls `guest-exec-status` until the cat exits, base64-decodes the output, and parses `SwapTotal` / `SwapFree` to draw a proper usage bar.
 
 To install QGA in a guest:
 
@@ -181,8 +159,7 @@ Then verify from the host:
 virsh qemu-agent-command <domain> '{"execute":"guest-ping"}'
 ```
 
-A successful `{"return":{}}` means the channel is live and `dirt` will pick
-it up on the next refresh.
+A successful `{"return":{}}` means the channel is live and `dirt` will pick it up on the next refresh.
 
 ## Architecture
 
@@ -226,11 +203,6 @@ later**. See [`LICENSE`](LICENSE) for the full text.
 
 Copyright © 2026 km <km@grogg.org>
 
-This program is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-This program is distributed in the hope that it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
-FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
