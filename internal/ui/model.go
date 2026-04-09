@@ -55,6 +55,14 @@ type Model struct {
 	// host info — fetched once at startup, immutable thereafter.
 	host lv.HostInfo
 
+	// host dynamic stats — refreshed every tick. We keep the previous sample
+	// so we can compute CPU% as a delta. cpuHist is the rolling sparkline.
+	hostStats     lv.HostStats
+	hostStatsPrev lv.HostStats
+	hostCPUPct    float64
+	hostCPUHist   []float64
+	hostHasStats  bool
+
 	// Layout.
 	width, height int
 
@@ -191,6 +199,11 @@ type hostLoadedMsg struct {
 	err  error
 }
 
+type hostStatsLoadedMsg struct {
+	stats lv.HostStats
+	err   error
+}
+
 type snapshotsLoadedMsg struct {
 	domain string
 	list   []lv.DomainSnapshot
@@ -251,6 +264,13 @@ func loadHostCmd(c *lv.Client) tea.Cmd {
 	}
 }
 
+func loadHostStatsCmd(c *lv.Client) tea.Cmd {
+	return func() tea.Msg {
+		s, err := c.HostStats()
+		return hostStatsLoadedMsg{stats: s, err: err}
+	}
+}
+
 func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
 	return func() tea.Msg {
 		list, err := c.ListSnapshots(domain)
@@ -288,7 +308,12 @@ func swapCmd(c *lv.Client, name string) tea.Cmd {
 // ──────────────────────────── Init ───────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(loadCmd(m.client), loadHostCmd(m.client), tickCmd(m.refreshInterval))
+	return tea.Batch(
+		loadCmd(m.client),
+		loadHostCmd(m.client),
+		loadHostStatsCmd(m.client),
+		tickCmd(m.refreshInterval),
+	)
 }
 
 // ──────────────────────────── Update ─────────────────────────────────────────
@@ -302,7 +327,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(loadCmd(m.client), tickCmd(m.refreshInterval))
+		return m, tea.Batch(
+			loadCmd(m.client),
+			loadHostStatsCmd(m.client),
+			tickCmd(m.refreshInterval),
+		)
 
 	case snapshotMsg:
 		if msg.err != nil {
@@ -322,6 +351,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case hostLoadedMsg:
 		if msg.err == nil {
 			m.host = msg.host
+		}
+		return m, nil
+
+	case hostStatsLoadedMsg:
+		if msg.err == nil {
+			// Compute CPU% from delta against previous sample.
+			if m.hostHasStats {
+				dTotal := float64(msg.stats.CPUTotal() - m.hostStatsPrev.CPUTotal())
+				dActive := float64(msg.stats.CPUActive() - m.hostStatsPrev.CPUActive())
+				if dTotal > 0 {
+					m.hostCPUPct = dActive / dTotal * 100
+					m.hostCPUHist = appendCap(m.hostCPUHist, m.hostCPUPct, historyWindow)
+				}
+			}
+			m.hostStatsPrev = m.hostStats
+			m.hostStats = msg.stats
+			m.hostHasStats = true
 		}
 		return m, nil
 

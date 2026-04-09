@@ -83,8 +83,13 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 	if p.Capacity > 0 {
 		usagePct = float64(p.Allocation) / float64(p.Capacity) * 100
 	}
-	usageBar := colorBar(usagePct, poolUsageW-7) +
-		fmt.Sprintf(" %3.0f%%", usagePct)
+	pctStr := fmt.Sprintf(" %3.0f%%", usagePct)
+	if usagePct >= 95 {
+		pctStr = errorStyle.Render(pctStr)
+	} else if usagePct >= 80 {
+		pctStr = lipgloss.NewStyle().Foreground(colPaused).Bold(true).Render(pctStr)
+	}
+	usageBar := storageColorBar(usagePct, poolUsageW-7) + pctStr
 
 	cols := []string{
 		padRight(truncate(p.Name, poolNameW), poolNameW),

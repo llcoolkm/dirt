@@ -19,6 +19,14 @@ func main() {
 
 	fmt.Printf("connected to %s on host %s\n\n", c.URI(), c.Hostname())
 
+	// Host stats probe.
+	if hs, err := c.HostStats(); err == nil {
+		fmt.Printf("Host: mem=%s/%s  swap=%s/%s  load=%.2f %.2f %.2f  uptime=%.0fs\n\n",
+			formatKB(hs.MemUsedKB()), formatKB(hs.MemTotalKB),
+			formatKB(hs.SwapUsedKB()), formatKB(hs.SwapTotalKB),
+			hs.Load1, hs.Load5, hs.Load15, hs.UptimeSeconds)
+	}
+
 	snap, err := c.Snapshot()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snapshot: %v\n", err)

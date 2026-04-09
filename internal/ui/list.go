@@ -10,14 +10,14 @@ import (
 
 // Column widths for the list table.
 const (
-	colNameW  = 20
-	colStateW = 9
-	colIPW    = 15
-	colOSW    = 13
-	colIDW    = 4
-	colVCPUW  = 5
-	colMemW   = 8
-	colCPUW   = 7
+	colNameW   = 20
+	colStateW  = 9
+	colIPW     = 15
+	colOSW     = 13
+	colVCPUW   = 5
+	colMemW    = 8
+	colCPUW    = 7
+	colUptimeW = 8
 )
 
 // listView renders the VM table.
@@ -87,10 +87,10 @@ func renderHeaderRow(active sortColumn, desc bool) string {
 		mark("STATE", sortByState, true, colStateW),
 		padRight("IP", colIPW),
 		padRight("OS", colOSW),
-		padLeft("ID", colIDW),
 		mark("vCPU", sortByVCPU, false, colVCPUW),
 		mark("MEM", sortByMem, false, colMemW),
 		mark("CPU%", sortByCPU, false, colCPUW),
+		padLeft("UPTIME", colUptimeW),
 	}
 	return listHeaderRow.Render(strings.Join(cols, "  "))
 }
@@ -107,14 +107,14 @@ func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
 	if osLabel == "" {
 		osLabel = "—"
 	}
-	idStr := "—"
-	if d.State == lv.StateRunning {
-		idStr = fmt.Sprintf("%d", d.ID)
-	}
 	mem := formatKB(d.MaxMemKB)
 	cpu := "—"
+	uptime := "—"
 	if d.State == lv.StateRunning && h != nil {
 		cpu = fmt.Sprintf("%5.1f%%", h.currentCPU())
+		if up := h.uptime(); up > 0 {
+			uptime = formatDuration(up)
+		}
 	}
 
 	stateColored := stateStyleFor(d.State).Render(padRight(state, colStateW))
@@ -124,10 +124,10 @@ func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
 		stateColored,
 		padRight(ip, colIPW),
 		padRight(osLabel, colOSW),
-		padLeft(idStr, colIDW),
 		padLeft(fmt.Sprintf("%d", d.NrVCPU), colVCPUW),
 		padLeft(mem, colMemW),
 		padLeft(cpu, colCPUW),
+		padLeft(uptime, colUptimeW),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {

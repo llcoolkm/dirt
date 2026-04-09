@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/llcoolkm/dirt/internal/lv"
@@ -36,13 +37,15 @@ func (m Model) runningHeaderView(d lv.Domain, boxWidth int) string {
 		h = &domHistory{}
 	}
 
-	// Compose title bar — name, state, ID, vCPU, OS.
+	// Compose title bar — name, state, vCPU, OS, uptime.
 	title := headerTitle.Render(d.Name) +
 		headerLabel.Render("  state ") + stateRunning.Render("running") +
-		headerLabel.Render("  id ") + headerValue.Render(fmt.Sprintf("%d", d.ID)) +
 		headerLabel.Render("  vCPU ") + headerValue.Render(fmt.Sprintf("%d", d.NrVCPU))
 	if d.OS != "" {
 		title += headerLabel.Render("  os ") + headerValue.Render(d.OS)
+	}
+	if up := h.uptime(); up > 0 {
+		title += headerLabel.Render("  uptime ") + headerValue.Render("≥"+formatDuration(up))
 	}
 
 	// Inner content width — box has 1 char border + 1 char padding on each side.
@@ -68,29 +71,61 @@ func (m Model) runningHeaderView(d lv.Domain, boxWidth int) string {
 	// Memory bar — htop-style multi-segment when balloon stats are present.
 	memLine := renderMemLine(d, inner)
 
+	// Append major-fault sparkline if we have any history.
+	if len(h.majorFault) > 0 {
+		fr := currentRate(h.majorFault)
+		var faultSuffix string
+		if fr > 0 {
+			faultSuffix = "  " + headerLabel.Render("fault ") +
+				lipgloss.NewStyle().Foreground(colCrashed).Render(sparkline(h.majorFault)) +
+				headerValue.Render(fmt.Sprintf(" %.0f/s", fr))
+		} else {
+			faultSuffix = "  " + headerLabel.Render("fault ") +
+				lipgloss.NewStyle().Foreground(colDimmed).Render(sparkline(h.majorFault)) +
+				headerLabel.Render(" idle")
+		}
+		memLine += faultSuffix
+	}
+
 	// Swap line — when QGA is installed in the guest, show usage bar; otherwise
 	// fall back to activity sparklines from the balloon counters.
 	swapInfo, hasSwap := m.swap[d.Name]
 	swapLine := renderSwapLine(h, swapInfo, hasSwap, inner)
 
-	// Disk and Net sparklines — "label ▁▂▃▅▇ value"
+	// Disk line — sparkline + bytes/sec + IOPS + average latency.
 	rdSpark := sparkline(h.blockRd)
 	wrSpark := sparkline(h.blockWr)
-	rxSpark := sparkline(h.netRx)
-	txSpark := sparkline(h.netTx)
-
 	rdRate := formatRate(currentRate(h.blockRd))
 	wrRate := formatRate(currentRate(h.blockWr))
-	rxRate := formatRate(currentRate(h.netRx))
-	txRate := formatRate(currentRate(h.netTx))
+	rdIops := currentRate(h.blockRdOps)
+	wrIops := currentRate(h.blockWrOps)
+	rdLat := formatLatencyUs(h.rdLatencyUs)
+	wrLat := formatLatencyUs(h.wrLatencyUs)
 
 	diskLine := headerLabel.Render("DISK ") +
-		headerLabel.Render("r ") + headerValue.Render(rdSpark) + headerValue.Render(" "+rdRate) +
-		headerLabel.Render("    w ") + headerValue.Render(wrSpark) + headerValue.Render(" "+wrRate)
+		headerLabel.Render("r ") + headerValue.Render(rdSpark) +
+		headerValue.Render(fmt.Sprintf(" %s %.0f iops %s", rdRate, rdIops, rdLat)) +
+		headerLabel.Render("    w ") + headerValue.Render(wrSpark) +
+		headerValue.Render(fmt.Sprintf(" %s %.0f iops %s", wrRate, wrIops, wrLat))
+
+	// Net line — sparkline + bytes/sec + packets/sec + error counters.
+	rxSpark := sparkline(h.netRx)
+	txSpark := sparkline(h.netTx)
+	rxRate := formatRate(currentRate(h.netRx))
+	txRate := formatRate(currentRate(h.netTx))
+	rxPps := currentRate(h.netRxPps)
+	txPps := currentRate(h.netTxPps)
 
 	netLine := headerLabel.Render("NET  ") +
-		headerLabel.Render("↓ ") + headerValue.Render(rxSpark) + headerValue.Render(" "+rxRate) +
-		headerLabel.Render("    ↑ ") + headerValue.Render(txSpark) + headerValue.Render(" "+txRate)
+		headerLabel.Render("↓ ") + headerValue.Render(rxSpark) +
+		headerValue.Render(fmt.Sprintf(" %s %.0f pps", rxRate, rxPps)) +
+		headerLabel.Render("    ↑ ") + headerValue.Render(txSpark) +
+		headerValue.Render(fmt.Sprintf(" %s %.0f pps", txRate, txPps))
+
+	// Append a red error count if any rx/tx errors or drops were observed.
+	if errs := d.NetRxErrs + d.NetTxErrs + d.NetRxDrop + d.NetTxDrop; errs > 0 {
+		netLine += "    " + errorStyle.Render(fmt.Sprintf("errs/drops %d", errs))
+	}
 
 	body := lipgloss.JoinVertical(lipgloss.Left,
 		title,
@@ -236,55 +271,150 @@ func (m Model) idleHeaderView(d lv.Domain, boxWidth int) string {
 	return headerBox.Width(boxWidth).Render(body)
 }
 
-// hostHeaderView is shown when no VM is selected. It now shows aggregate
-// host node info: CPU model + cores, total RAM, allocated RAM, domain counts.
+// hostHeaderView is the htop-style host pane shown when no VM is selected.
+// It draws live host CPU, MEM, SWAP bars from /proc, plus load avg, domain
+// counts, and overcommit ratios.
 func (m Model) hostHeaderView(boxWidth int) string {
 	running := 0
-	var allocKB uint64
+	var allocVCPU uint
+	var allocMemKB uint64
 	for _, d := range m.snap.Domains {
 		if d.State == lv.StateRunning {
 			running++
-			allocKB += d.MaxMemKB
+			allocVCPU += d.NrVCPU
+			allocMemKB += d.MaxMemKB
 		}
 	}
 
+	// Title: hostname + URI + uptime.
 	title := headerTitle.Render("host: "+m.snap.Hostname) +
 		headerLabel.Render("  ("+m.snap.URI+")")
-
-	// Line 1: CPU model and total cores from libvirt NodeInfo (cached on init).
-	cpuLine := ""
-	if m.host.CPUs > 0 {
-		cpuLine = headerLabel.Render("CPU:  ") +
-			headerValue.Render(fmt.Sprintf("%s — %d cores", m.host.CPUModel, m.host.CPUs))
+	if m.hostStats.UptimeSeconds > 0 {
+		uptime := time.Duration(m.hostStats.UptimeSeconds * float64(time.Second))
+		title += headerLabel.Render("  uptime ") + headerValue.Render(formatDuration(uptime))
 	}
 
-	// Line 2: total host memory and total allocated to running VMs.
-	memLine := ""
-	if m.host.MemoryKB > 0 {
-		allocPct := float64(allocKB) / float64(m.host.MemoryKB) * 100
-		memLine = headerLabel.Render("MEM:  ") +
-			headerValue.Render(fmt.Sprintf("%s total", formatKB(m.host.MemoryKB))) +
-			headerLabel.Render("    allocated to VMs: ") +
-			headerValue.Render(fmt.Sprintf("%s (%.0f%%)", formatKB(allocKB), allocPct))
+	inner := boxWidth - 4
+	if inner < 30 {
+		inner = 30
 	}
 
-	// Line 3: domain counts.
-	stat := headerLabel.Render("DOMS: ") +
+	// CPU line: live host CPU% as a coloured bar + load average.
+	loadStr := fmt.Sprintf("%.2f %.2f %.2f", m.hostStats.Load1, m.hostStats.Load5, m.hostStats.Load15)
+	cpuValue := fmt.Sprintf(" %5.1f%%", m.hostCPUPct)
+	cpuLoadSuffix := headerLabel.Render("    load ") + headerValue.Render(loadStr)
+	cpuLabel := "CPU  "
+	cpuBarW := inner - len(cpuLabel) - len(cpuValue) - 2 - len("    load ")*1 - len(loadStr)
+	if cpuBarW < 10 {
+		cpuBarW = 10
+	}
+	cpuLine := headerLabel.Render(cpuLabel) +
+		headerLabel.Render("[") + colorBar(m.hostCPUPct, cpuBarW) + headerLabel.Render("]") +
+		headerValue.Render(cpuValue) + cpuLoadSuffix
+
+	// MEM line: htop-style multi-segment bar from /proc/meminfo.
+	memLine := renderHostMemLine(m.hostStats, inner)
+
+	// SWAP line: usage bar from /proc/meminfo.
+	swapLine := renderHostSwapLine(m.hostStats, inner)
+
+	// DOMS / overcommit line.
+	domsLine := headerLabel.Render("DOMS: ") +
 		headerValue.Render(fmt.Sprintf("%d", len(m.snap.Domains))) +
 		headerLabel.Render("    running: ") +
 		headerValue.Render(fmt.Sprintf("%d", running))
-
-	parts := []string{title, ""}
-	if cpuLine != "" {
-		parts = append(parts, cpuLine)
+	if m.host.CPUs > 0 {
+		ratio := float64(allocVCPU) / float64(m.host.CPUs)
+		ratioStr := fmt.Sprintf("%d/%d (%.2f×)", allocVCPU, m.host.CPUs, ratio)
+		valStyle := headerValue
+		if ratio > 1.0 {
+			valStyle = lipgloss.NewStyle().Foreground(colPaused)
+		}
+		if ratio > 2.0 {
+			valStyle = lipgloss.NewStyle().Foreground(colCrashed).Bold(true)
+		}
+		domsLine += headerLabel.Render("    vCPU: ") + valStyle.Render(ratioStr)
 	}
-	if memLine != "" {
-		parts = append(parts, memLine)
+	if m.host.MemoryKB > 0 {
+		ratio := float64(allocMemKB) / float64(m.host.MemoryKB) * 100
+		ratioStr := fmt.Sprintf("%s/%s (%.0f%%)", formatKB(allocMemKB), formatKB(m.host.MemoryKB), ratio)
+		valStyle := headerValue
+		if ratio >= 80 {
+			valStyle = lipgloss.NewStyle().Foreground(colPaused)
+		}
+		if ratio >= 100 {
+			valStyle = lipgloss.NewStyle().Foreground(colCrashed).Bold(true)
+		}
+		domsLine += headerLabel.Render("    mem: ") + valStyle.Render(ratioStr)
 	}
-	parts = append(parts, stat)
 
-	body := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return headerBox.Width(boxWidth).Render(body)
+	// Footer line: CPU model.
+	footer := ""
+	if m.host.CPUs > 0 {
+		footer = headerLabel.Render(m.host.CPUModel + " — " + fmt.Sprintf("%d cores", m.host.CPUs))
+	}
+
+	parts := []string{title, cpuLine, memLine, swapLine, domsLine}
+	if footer != "" {
+		parts = append(parts, footer)
+	}
+	return headerBox.Width(boxWidth).Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+}
+
+// renderHostMemLine builds the htop-style multi-segment host memory bar.
+func renderHostMemLine(s lv.HostStats, inner int) string {
+	if s.MemTotalKB == 0 {
+		return headerLabel.Render("MEM  ") + headerValue.Render("(no /proc/meminfo)")
+	}
+	used := s.MemUsedKB()
+	cache := s.MemCacheKB()
+	usedPct := float64(used) / float64(s.MemTotalKB) * 100
+	cachePct := float64(cache) / float64(s.MemTotalKB) * 100
+
+	label := "MEM  "
+	detail := fmt.Sprintf(" %s/%s", formatKB(used+cache), formatKB(s.MemTotalKB))
+	barW := inner - len(label) - len(detail) - 2
+	if barW < 10 {
+		barW = 10
+	}
+	memBar := multiBar([]barSegment{
+		{pct: usedPct, color: colMemUsed},
+		{pct: cachePct, color: colMemCache},
+	}, barW)
+	line := headerLabel.Render(label) +
+		headerLabel.Render("[") + memBar + headerLabel.Render("]") +
+		headerValue.Render(detail)
+
+	breakdown := "  " +
+		lipgloss.NewStyle().Foreground(colMemUsed).Render("■") + headerLabel.Render(" used ") + headerValue.Render(formatKB(used)) +
+		"  " +
+		lipgloss.NewStyle().Foreground(colMemCache).Render("■") + headerLabel.Render(" cache ") + headerValue.Render(formatKB(cache)) +
+		"  " +
+		lipgloss.NewStyle().Foreground(colDimmed).Render("□") + headerLabel.Render(" free ") + headerValue.Render(formatKB(s.MemFreeKB))
+	line += breakdown
+	return line
+}
+
+// renderHostSwapLine builds the host swap bar from /proc/meminfo data.
+func renderHostSwapLine(s lv.HostStats, inner int) string {
+	if s.SwapTotalKB == 0 {
+		return headerLabel.Render("SWAP ") + headerValue.Render("disabled")
+	}
+	used := s.SwapUsedKB()
+	usedPct := float64(used) / float64(s.SwapTotalKB) * 100
+
+	label := "SWAP "
+	detail := fmt.Sprintf(" %s/%s", formatKB(used), formatKB(s.SwapTotalKB))
+	barW := inner - len(label) - len(detail) - 2
+	if barW < 10 {
+		barW = 10
+	}
+	swapBar := multiBar([]barSegment{
+		{pct: usedPct, color: colSwap},
+	}, barW)
+	return headerLabel.Render(label) +
+		headerLabel.Render("[") + swapBar + headerLabel.Render("]") +
+		headerValue.Render(detail)
 }
 
 // colorBar renders a horizontal bar coloured by fill percentage:

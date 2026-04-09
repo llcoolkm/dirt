@@ -63,6 +63,22 @@ type barSegment struct {
 	color lipgloss.TerminalColor
 }
 
+// storageColorBar renders a single-coloured bar with thresholds tuned for
+// disk usage: green ≤ 80%, yellow ≤ 95%, red above.
+func storageColorBar(pct float64, width int) string {
+	b := bar(pct, width)
+	style := lipgloss.NewStyle()
+	switch {
+	case pct >= 95:
+		style = style.Foreground(colCrashed).Bold(true)
+	case pct >= 80:
+		style = style.Foreground(colPaused)
+	default:
+		style = style.Foreground(colRunning)
+	}
+	return style.Render(b)
+}
+
 // multiBar renders an htop-style multi-segment bar using "|" characters in
 // the segment colours. Empty cells become spaces — htop's signature look.
 // Total of segment pcts should be ≤ 100; anything over is clamped at the edge.

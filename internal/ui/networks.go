@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ const (
 	netAutoW    = 10
 	netBridgeW  = 12
 	netForwardW = 10
+	netLeasesW  = 7
 )
 
 // networksView renders the libvirt networks list.
@@ -34,6 +36,7 @@ func (m Model) networksView() string {
 		padRight("AUTOSTART", netAutoW),
 		padRight("BRIDGE", netBridgeW),
 		padRight("FORWARD", netForwardW),
+		padLeft("LEASES", netLeasesW),
 	}, "  "))
 
 	rows := []string{header}
@@ -65,6 +68,10 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 	if n.Autostart {
 		auto = "yes"
 	}
+	leases := "—"
+	if n.Active {
+		leases = fmt.Sprintf("%d", n.NumLeases)
+	}
 	stateColored := style.Render(padRight(state, netStateW))
 
 	cols := []string{
@@ -73,6 +80,7 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 		padRight(auto, netAutoW),
 		padRight(truncate(n.Bridge, netBridgeW), netBridgeW),
 		padRight(truncate(n.Forward, netForwardW), netForwardW),
+		padLeft(leases, netLeasesW),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {

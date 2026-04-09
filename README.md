@@ -12,14 +12,19 @@ I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with
 
 ## Features
 
-- **Live VM table** — name, state, IP, OS, ID, vCPU, memory, CPU%
+- **Live VM table** — name, state, IP, OS, vCPU, memory, CPU%, uptime
 - **Sortable columns** — `1`–`5` to sort by name / state / vCPU / memory / CPU%, press again to reverse
-- **htop-style header pane** for the highlighted VM:
+- **htop-style host header** (when no VM is selected): live host CPU%, multi-segment memory bar, swap bar, load average, vCPU + memory overcommit ratios
+- **htop-style per-VM header** for the highlighted VM:
   - **CPU bar** with percent (green / yellow / red by load)
-  - **Memory bar**, multi-segment: green for *used*, yellow for *cache*, dim for *free*
+  - **Memory bar**, multi-segment: green for *used*, yellow for *cache*, dim for *free*, plus a major-fault sparkline
   - **Swap bar** when `qemu-guest-agent` is installed in the guest; activity sparklines as a fallback
-  - **Disk read/write** sparklines (bytes/sec)
-  - **Network rx/tx** sparklines (bytes/sec)
+  - **Disk read/write** sparklines + bytes/sec + IOPS + average latency
+  - **Network rx/tx** sparklines + bytes/sec + packets/sec + error/drop counts
+  - **Uptime** since dirt first observed the VM running
+- **Snapshot management** — list, create, revert, delete (`:snap`)
+- **Networks view** — start/stop/autostart toggle, DHCP lease counts (`:net`)
+- **Storage pools view** — capacity bars with colour warnings, drill into volumes (`:pool`)
 - **Full domain lifecycle** from single keypresses
 - **Live serial console** via `virsh console` (Tea suspends, virsh runs, Tea resumes on detach)
 - **Detail view** with full XML, scrollable, and **incremental `/` search** with match highlights and a position indicator

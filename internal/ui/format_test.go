@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
@@ -43,5 +46,46 @@ func TestFormatRate(t *testing.T) {
 	}
 	if got := formatRate(2048); got != "2.0K/s" {
 		t.Errorf("formatRate(2048) = %q, want 2.0K/s", got)
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	cases := []struct {
+		seconds int
+		want    string
+	}{
+		{0, "—"},
+		{30, "30s"},
+		{90, "1m30s"},
+		{3600, "1h0m"},
+		{3700, "1h1m"},
+		{86400, "1d0h"},
+		{86400 + 3600*5, "1d5h"},
+		{86400 * 12, "12d0h"},
+	}
+	for _, c := range cases {
+		got := formatDuration(time.Duration(c.seconds) * time.Second)
+		if got != c.want {
+			t.Errorf("formatDuration(%ds) = %q, want %q", c.seconds, got, c.want)
+		}
+	}
+}
+
+func TestFormatLatencyUs(t *testing.T) {
+	cases := []struct {
+		us   float64
+		want string
+	}{
+		{0, "—"},
+		{12, "12µs"},
+		{500, "500µs"},
+		{1000, "1.0ms"},
+		{2500, "2.5ms"},
+	}
+	for _, c := range cases {
+		got := formatLatencyUs(c.us)
+		if got != c.want {
+			t.Errorf("formatLatencyUs(%g) = %q, want %q", c.us, got, c.want)
+		}
 	}
 }

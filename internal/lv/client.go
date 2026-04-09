@@ -130,12 +130,24 @@ type Domain struct {
 	BalloonRssKB        uint64 // resident set size on the host
 	BalloonSwapIn       uint64 // cumulative pages swapped in (guest)
 	BalloonSwapOut      uint64 // cumulative pages swapped out (guest)
+	BalloonMajorFault   uint64 // cumulative major page faults (memory pressure)
+	BalloonMinorFault   uint64
 
-	// I/O counters, summed across all disks / interfaces. Cumulative bytes.
+	// I/O counters, summed across all disks / interfaces. Cumulative.
 	BlockRdBytes uint64
 	BlockWrBytes uint64
+	BlockRdReqs  uint64 // cumulative read requests (for IOPS)
+	BlockWrReqs  uint64
+	BlockRdTimes uint64 // cumulative read time (ns) — for latency
+	BlockWrTimes uint64
 	NetRxBytes   uint64
 	NetTxBytes   uint64
+	NetRxPkts    uint64
+	NetTxPkts    uint64
+	NetRxErrs    uint64
+	NetRxDrop    uint64
+	NetTxErrs    uint64
+	NetTxDrop    uint64
 }
 
 // Snapshot is one full sample of the host plus all its domains.
@@ -237,6 +249,12 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			if s.Balloon.SwapOutSet {
 				dom.BalloonSwapOut = s.Balloon.SwapOut
 			}
+			if s.Balloon.MajorFaultSet {
+				dom.BalloonMajorFault = s.Balloon.MajorFault
+			}
+			if s.Balloon.MinorFaultSet {
+				dom.BalloonMinorFault = s.Balloon.MinorFault
+			}
 		}
 
 		// OS label — cached on first sight, since it doesn't change at runtime.
@@ -259,6 +277,18 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			if bs.WrBytesSet {
 				dom.BlockWrBytes += bs.WrBytes
 			}
+			if bs.RdReqsSet {
+				dom.BlockRdReqs += bs.RdReqs
+			}
+			if bs.WrReqsSet {
+				dom.BlockWrReqs += bs.WrReqs
+			}
+			if bs.RdTimesSet {
+				dom.BlockRdTimes += bs.RdTimes
+			}
+			if bs.WrTimesSet {
+				dom.BlockWrTimes += bs.WrTimes
+			}
 		}
 		// Sum net stats across all interfaces.
 		for _, ns := range s.Net {
@@ -267,6 +297,24 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			}
 			if ns.TxBytesSet {
 				dom.NetTxBytes += ns.TxBytes
+			}
+			if ns.RxPktsSet {
+				dom.NetRxPkts += ns.RxPkts
+			}
+			if ns.TxPktsSet {
+				dom.NetTxPkts += ns.TxPkts
+			}
+			if ns.RxErrsSet {
+				dom.NetRxErrs += ns.RxErrs
+			}
+			if ns.RxDropSet {
+				dom.NetRxDrop += ns.RxDrop
+			}
+			if ns.TxErrsSet {
+				dom.NetTxErrs += ns.TxErrs
+			}
+			if ns.TxDropSet {
+				dom.NetTxDrop += ns.TxDrop
 			}
 		}
 
@@ -571,6 +619,7 @@ type Network struct {
 	Autostart  bool
 	Bridge     string
 	Forward    string // nat / route / bridge / open / none
+	NumLeases  int    // count of active DHCP leases (0 if not queryable)
 }
 
 // networkXML is the minimal XML schema we parse out of GetXMLDesc.
@@ -601,6 +650,14 @@ func (c *Client) ListNetworks() ([]Network, error) {
 			_ = xml.Unmarshal([]byte(x), &nx)
 		}
 
+		// DHCP lease count — only meaningful for active networks with DHCP.
+		leaseCount := 0
+		if active {
+			if leases, err := n.GetDHCPLeases(); err == nil {
+				leaseCount = len(leases)
+			}
+		}
+
 		out = append(out, Network{
 			Name:       name,
 			UUID:       uuid,
@@ -609,6 +666,7 @@ func (c *Client) ListNetworks() ([]Network, error) {
 			Autostart:  autostart,
 			Bridge:     bridge,
 			Forward:    nx.Forward.Mode,
+			NumLeases:  leaseCount,
 		})
 		_ = n.Free()
 	}
