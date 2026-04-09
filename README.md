@@ -120,6 +120,8 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 |-----|--------|
 | `:` | open command palette |
 | `:snap` | snapshots of selected VM |
+| `:net` | libvirt networks |
+| `:pool` | storage pools (and drill-down into volumes) |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
 | `:q` | quit |
@@ -133,6 +135,24 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `D` / `x` | delete snapshot (asks `y` to confirm) |
 | `R` / `F5` | refresh list |
 | `esc` / `q` | back to VM list |
+
+### Networks view
+| Key | Action |
+|-----|--------|
+| `j` / `k` | navigate networks |
+| `s` / `S` | start / stop network |
+| `a` | toggle autostart |
+| `R` / `F5` | refresh list |
+| `esc` / `q` | back to VM list |
+
+### Pools / Volumes view
+| Key | Action |
+|-----|--------|
+| `j` / `k` | navigate pools or volumes |
+| `s` / `S` | start / stop pool |
+| `⏎` / `d` | drill into pool's volumes |
+| `R` / `F5` | refresh |
+| `esc` / `q` | back |
 
 ### Detail view
 | Key | Action |
@@ -213,8 +233,6 @@ dirt/
 ```
 
 ## Caveats and known limits
-
-- **Networks / storage pools / volumes** views — not yet, planned for v0.3
 - **Single host** — multi-host switching is not yet, but `--uri` / `LIBVIRT_DEFAULT_URI` works for any single libvirt endpoint
 - **Memory bar accuracy** depends on the guest's balloon driver. Without one, falls back to allocated memory (which always reads as 100% in libvirt's eyes)
 - **Console detach** uses `Ctrl-]` (the `virsh console` default)

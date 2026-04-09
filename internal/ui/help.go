@@ -67,6 +67,8 @@ func (m Model) helpView() string {
 			rows: []helpRow{
 				{":", "open command palette"},
 				{":snap", "snapshots of selected VM"},
+				{":net", "libvirt networks"},
+				{":pool", "storage pools"},
 				{":vm", "back to VM list"},
 				{":help", "this help screen"},
 				{":q", "quit"},
@@ -81,6 +83,26 @@ func (m Model) helpView() string {
 				{"D / x", "delete snapshot (asks y)"},
 				{"R / F5", "refresh list"},
 				{"esc / q", "back to VM list"},
+			},
+		},
+		{
+			title: "Networks view",
+			rows: []helpRow{
+				{"j / k", "navigate networks"},
+				{"s / S", "start / stop network"},
+				{"a", "toggle autostart"},
+				{"R / F5", "refresh list"},
+				{"esc / q", "back to VM list"},
+			},
+		},
+		{
+			title: "Pools / Volumes view",
+			rows: []helpRow{
+				{"j / k", "navigate pools/volumes"},
+				{"s / S", "start / stop pool"},
+				{"⏎ / d", "drill into pool's volumes"},
+				{"R / F5", "refresh"},
+				{"esc / q", "back"},
 			},
 		},
 		{

@@ -27,6 +27,12 @@ func (m Model) View() string {
 		return m.detailView()
 	case viewSnapshots:
 		return m.snapshotsView()
+	case viewNetworks:
+		return m.networksView()
+	case viewPools:
+		return m.poolsView()
+	case viewVolumes:
+		return m.volumesView()
 	}
 
 	parts := []string{

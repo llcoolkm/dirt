@@ -560,6 +560,246 @@ func xmlEscape(s string) string {
 	return r.Replace(s)
 }
 
+// ──────────────────────────── Networks ───────────────────────────────────────
+
+// Network is a snapshot of a libvirt network at a moment in time.
+type Network struct {
+	Name       string
+	UUID       string
+	Active     bool
+	Persistent bool
+	Autostart  bool
+	Bridge     string
+	Forward    string // nat / route / bridge / open / none
+}
+
+// networkXML is the minimal XML schema we parse out of GetXMLDesc.
+type networkXML struct {
+	Forward struct {
+		Mode string `xml:"mode,attr"`
+	} `xml:"forward"`
+}
+
+// ListNetworks returns all defined networks (active + inactive).
+func (c *Client) ListNetworks() ([]Network, error) {
+	nets, err := c.conn.ListAllNetworks(0)
+	if err != nil {
+		return nil, fmt.Errorf("list networks: %w", err)
+	}
+	out := make([]Network, 0, len(nets))
+	for i := range nets {
+		n := &nets[i]
+		name, _ := n.GetName()
+		uuid, _ := n.GetUUIDString()
+		active, _ := n.IsActive()
+		persistent, _ := n.IsPersistent()
+		autostart, _ := n.GetAutostart()
+		bridge, _ := n.GetBridgeName()
+
+		var nx networkXML
+		if x, err := n.GetXMLDesc(0); err == nil {
+			_ = xml.Unmarshal([]byte(x), &nx)
+		}
+
+		out = append(out, Network{
+			Name:       name,
+			UUID:       uuid,
+			Active:     active,
+			Persistent: persistent,
+			Autostart:  autostart,
+			Bridge:     bridge,
+			Forward:    nx.Forward.Mode,
+		})
+		_ = n.Free()
+	}
+	return out, nil
+}
+
+func (c *Client) withNetwork(name string, fn func(*libvirt.Network) error) error {
+	n, err := c.conn.LookupNetworkByName(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = n.Free() }()
+	return fn(n)
+}
+
+// StartNetwork starts (activates) a network.
+func (c *Client) StartNetwork(name string) error {
+	return c.withNetwork(name, func(n *libvirt.Network) error { return n.Create() })
+}
+
+// StopNetwork deactivates a network.
+func (c *Client) StopNetwork(name string) error {
+	return c.withNetwork(name, func(n *libvirt.Network) error { return n.Destroy() })
+}
+
+// ToggleNetworkAutostart flips the autostart flag.
+func (c *Client) ToggleNetworkAutostart(name string) error {
+	return c.withNetwork(name, func(n *libvirt.Network) error {
+		cur, err := n.GetAutostart()
+		if err != nil {
+			return err
+		}
+		return n.SetAutostart(!cur)
+	})
+}
+
+// ──────────────────────────── Storage pools ──────────────────────────────────
+
+// StoragePool represents one libvirt storage pool, copied out of C handles.
+type StoragePool struct {
+	Name       string
+	UUID       string
+	State      string // running / inactive / building / degraded / inaccessible
+	Type       string // dir, lvm, nfs, …
+	Persistent bool
+	Autostart  bool
+	Capacity   uint64 // bytes
+	Allocation uint64
+	Available  uint64
+}
+
+// poolXML extracts the pool type from its XML.
+type poolXML struct {
+	Type string `xml:"type,attr"`
+}
+
+// ListStoragePools returns all defined storage pools.
+func (c *Client) ListStoragePools() ([]StoragePool, error) {
+	pools, err := c.conn.ListAllStoragePools(0)
+	if err != nil {
+		return nil, fmt.Errorf("list pools: %w", err)
+	}
+	out := make([]StoragePool, 0, len(pools))
+	for i := range pools {
+		p := &pools[i]
+		name, _ := p.GetName()
+		uuid, _ := p.GetUUIDString()
+		persistent, _ := p.IsPersistent()
+		autostart, _ := p.GetAutostart()
+
+		var info *libvirt.StoragePoolInfo
+		info, _ = p.GetInfo()
+
+		var px poolXML
+		if x, err := p.GetXMLDesc(0); err == nil {
+			_ = xml.Unmarshal([]byte(x), &px)
+		}
+
+		pool := StoragePool{
+			Name:       name,
+			UUID:       uuid,
+			Persistent: persistent,
+			Autostart:  autostart,
+			Type:       px.Type,
+		}
+		if info != nil {
+			pool.State = poolStateString(info.State)
+			pool.Capacity = info.Capacity
+			pool.Allocation = info.Allocation
+			pool.Available = info.Available
+		}
+		out = append(out, pool)
+		_ = p.Free()
+	}
+	return out, nil
+}
+
+func poolStateString(s libvirt.StoragePoolState) string {
+	switch s {
+	case libvirt.STORAGE_POOL_INACTIVE:
+		return "inactive"
+	case libvirt.STORAGE_POOL_BUILDING:
+		return "building"
+	case libvirt.STORAGE_POOL_RUNNING:
+		return "running"
+	case libvirt.STORAGE_POOL_DEGRADED:
+		return "degraded"
+	case libvirt.STORAGE_POOL_INACCESSIBLE:
+		return "inaccessible"
+	}
+	return "unknown"
+}
+
+func (c *Client) withPool(name string, fn func(*libvirt.StoragePool) error) error {
+	p, err := c.conn.LookupStoragePoolByName(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = p.Free() }()
+	return fn(p)
+}
+
+// StartPool starts (activates) a storage pool.
+func (c *Client) StartPool(name string) error {
+	return c.withPool(name, func(p *libvirt.StoragePool) error { return p.Create(0) })
+}
+
+// StopPool deactivates a storage pool.
+func (c *Client) StopPool(name string) error {
+	return c.withPool(name, func(p *libvirt.StoragePool) error { return p.Destroy() })
+}
+
+// ──────────────────────────── Storage volumes ────────────────────────────────
+
+// StorageVolume is one volume inside a pool.
+type StorageVolume struct {
+	Name       string
+	Path       string
+	Type       string
+	Capacity   uint64
+	Allocation uint64
+}
+
+// ListVolumes returns all volumes inside the named pool.
+func (c *Client) ListVolumes(poolName string) ([]StorageVolume, error) {
+	var out []StorageVolume
+	err := c.withPool(poolName, func(p *libvirt.StoragePool) error {
+		vols, err := p.ListAllStorageVolumes(0)
+		if err != nil {
+			return err
+		}
+		for i := range vols {
+			v := &vols[i]
+			name, _ := v.GetName()
+			path, _ := v.GetPath()
+			info, _ := v.GetInfo()
+			vol := StorageVolume{
+				Name: name,
+				Path: path,
+			}
+			if info != nil {
+				vol.Type = volTypeString(info.Type)
+				vol.Capacity = info.Capacity
+				vol.Allocation = info.Allocation
+			}
+			out = append(out, vol)
+			_ = v.Free()
+		}
+		return nil
+	})
+	return out, err
+}
+
+func volTypeString(t libvirt.StorageVolType) string {
+	switch t {
+	case libvirt.STORAGE_VOL_FILE:
+		return "file"
+	case libvirt.STORAGE_VOL_BLOCK:
+		return "block"
+	case libvirt.STORAGE_VOL_DIR:
+		return "dir"
+	case libvirt.STORAGE_VOL_NETWORK:
+		return "network"
+	case libvirt.STORAGE_VOL_NETDIR:
+		return "netdir"
+	case libvirt.STORAGE_VOL_PLOOP:
+		return "ploop"
+	}
+	return "unknown"
+}
+
 // XMLDesc returns the live XML description of the domain.
 func (c *Client) XMLDesc(name string) (string, error) {
 	var out string

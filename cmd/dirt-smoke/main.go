@@ -81,6 +81,37 @@ func main() {
 			fmt.Printf("  %-20s --   %s\n", d.Name, msg)
 		}
 	}
+	fmt.Println()
+
+	// Networks probe.
+	fmt.Println("Networks:")
+	if nets, err := c.ListNetworks(); err == nil {
+		for _, n := range nets {
+			fmt.Printf("  %-15s active=%-5v autostart=%-5v bridge=%-10s forward=%s\n",
+				n.Name, n.Active, n.Autostart, n.Bridge, n.Forward)
+		}
+	} else {
+		fmt.Printf("  err: %v\n", err)
+	}
+	fmt.Println()
+
+	// Pools probe.
+	fmt.Println("Storage pools:")
+	if pools, err := c.ListStoragePools(); err == nil {
+		for _, p := range pools {
+			fmt.Printf("  %-25s state=%-10s type=%-6s cap=%s alloc=%s avail=%s\n",
+				p.Name, p.State, p.Type, formatKB(p.Capacity/1024), formatKB(p.Allocation/1024), formatKB(p.Available/1024))
+			if p.State == "running" {
+				if vols, err := c.ListVolumes(p.Name); err == nil {
+					for _, v := range vols {
+						fmt.Printf("      vol %-30s cap=%s\n", v.Name, formatKB(v.Capacity/1024))
+					}
+				}
+			}
+		}
+	} else {
+		fmt.Printf("  err: %v\n", err)
+	}
 }
 
 // formatKB is a tiny duplicate of internal/ui/format.go's helper for the smoke test.

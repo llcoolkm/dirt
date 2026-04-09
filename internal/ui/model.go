@@ -76,12 +76,28 @@ type Model struct {
 	detailMatchIdx  int    // index into detailMatches for current cursor
 
 	// Snapshot view state.
-	snapshotsFor  string                // domain name we're showing snapshots for
-	snapshots     []lv.DomainSnapshot   // current list
-	snapshotsErr  error                 // last load error
-	snapshotsSel  int                   // selected snapshot index
-	snapshotInput bool                  // typing a name for a new snapshot
-	snapshotName  string                // text being typed for the new name
+	snapshotsFor  string              // domain name we're showing snapshots for
+	snapshots     []lv.DomainSnapshot // current list
+	snapshotsErr  error               // last load error
+	snapshotsSel  int                 // selected snapshot index
+	snapshotInput bool                // typing a name for a new snapshot
+	snapshotName  string              // text being typed for the new name
+
+	// Networks view state.
+	networks    []lv.Network
+	networksSel int
+	networksErr error
+
+	// Storage pools view state.
+	pools    []lv.StoragePool
+	poolsSel int
+	poolsErr error
+
+	// Storage volumes view state (drill-down from pools).
+	volumes    []lv.StorageVolume
+	volumesFor string // pool name
+	volumesSel int
+	volumesErr error
 
 	// Command palette state (entered via `:`).
 	commanding bool   // currently typing a `:` command
@@ -181,6 +197,22 @@ type snapshotsLoadedMsg struct {
 	err    error
 }
 
+type networksLoadedMsg struct {
+	list []lv.Network
+	err  error
+}
+
+type poolsLoadedMsg struct {
+	list []lv.StoragePool
+	err  error
+}
+
+type volumesLoadedMsg struct {
+	pool string
+	list []lv.StorageVolume
+	err  error
+}
+
 type swapMsg struct {
 	name string
 	info lv.SwapInfo
@@ -223,6 +255,27 @@ func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
 	return func() tea.Msg {
 		list, err := c.ListSnapshots(domain)
 		return snapshotsLoadedMsg{domain: domain, list: list, err: err}
+	}
+}
+
+func loadNetworksCmd(c *lv.Client) tea.Cmd {
+	return func() tea.Msg {
+		list, err := c.ListNetworks()
+		return networksLoadedMsg{list: list, err: err}
+	}
+}
+
+func loadPoolsCmd(c *lv.Client) tea.Cmd {
+	return func() tea.Msg {
+		list, err := c.ListStoragePools()
+		return poolsLoadedMsg{list: list, err: err}
+	}
+}
+
+func loadVolumesCmd(c *lv.Client, pool string) tea.Cmd {
+	return func() tea.Msg {
+		list, err := c.ListVolumes(pool)
+		return volumesLoadedMsg{pool: pool, list: list, err: err}
 	}
 }
 
@@ -283,17 +336,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case networksLoadedMsg:
+		m.networks = msg.list
+		m.networksErr = msg.err
+		if m.networksSel >= len(m.networks) {
+			m.networksSel = len(m.networks) - 1
+		}
+		if m.networksSel < 0 {
+			m.networksSel = 0
+		}
+		return m, nil
+
+	case poolsLoadedMsg:
+		m.pools = msg.list
+		m.poolsErr = msg.err
+		if m.poolsSel >= len(m.pools) {
+			m.poolsSel = len(m.pools) - 1
+		}
+		if m.poolsSel < 0 {
+			m.poolsSel = 0
+		}
+		return m, nil
+
+	case volumesLoadedMsg:
+		m.volumes = msg.list
+		m.volumesErr = msg.err
+		if m.volumesSel >= len(m.volumes) {
+			m.volumesSel = len(m.volumes) - 1
+		}
+		if m.volumesSel < 0 {
+			m.volumesSel = 0
+		}
+		return m, nil
+
 	case actionResultMsg:
 		if msg.err != nil {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
 		} else {
 			m.flashf("✓ %s %s", msg.action, msg.name)
 		}
-		// Refresh immediately after a successful action. If we're in the
-		// snapshots view, also reload the snapshot list.
+		// Refresh immediately after a successful action. The reload depends
+		// on which view the user is currently in.
 		cmds := []tea.Cmd{loadCmd(m.client)}
-		if m.mode == viewSnapshots && m.snapshotsFor != "" {
-			cmds = append(cmds, loadSnapshotsCmd(m.client, m.snapshotsFor))
+		switch m.mode {
+		case viewSnapshots:
+			if m.snapshotsFor != "" {
+				cmds = append(cmds, loadSnapshotsCmd(m.client, m.snapshotsFor))
+			}
+		case viewNetworks:
+			cmds = append(cmds, loadNetworksCmd(m.client))
+		case viewPools:
+			cmds = append(cmds, loadPoolsCmd(m.client))
+		case viewVolumes:
+			if m.volumesFor != "" {
+				cmds = append(cmds, loadVolumesCmd(m.client, m.volumesFor))
+			}
 		}
 		return m, tea.Batch(cmds...)
 
@@ -328,6 +425,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(msg)
 	case m.mode == viewSnapshots:
 		return m.handleSnapshotsKey(msg)
+	case m.mode == viewNetworks:
+		return m.handleNetworksKey(msg)
+	case m.mode == viewPools:
+		return m.handlePoolsKey(msg)
+	case m.mode == viewVolumes:
+		return m.handleVolumesKey(msg)
 	case m.commanding:
 		return m.handleCommandKey(msg)
 	default:
@@ -842,11 +945,15 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.snapshots = nil
 		return m, loadSnapshotsCmd(m.client, d.Name)
 	case "net", "network", "networks":
-		m.flashf("networks view: not yet (v0.3)")
-		return m, nil
+		m.mode = viewNetworks
+		m.networksSel = 0
+		m.networks = nil
+		return m, loadNetworksCmd(m.client)
 	case "pool", "pools":
-		m.flashf("pools view: not yet (v0.3)")
-		return m, nil
+		m.mode = viewPools
+		m.poolsSel = 0
+		m.pools = nil
+		return m, loadPoolsCmd(m.client)
 	}
 	m.flashf("unknown command: %s", cmd)
 	return m, nil
@@ -976,6 +1083,151 @@ func (m Model) currentSnapshot() (lv.DomainSnapshot, bool) {
 		return lv.DomainSnapshot{}, false
 	}
 	return m.snapshots[m.snapshotsSel], true
+}
+
+// handleNetworksKey handles keys while in the networks view.
+func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = viewMain
+		return m, nil
+	case "j", "down":
+		if m.networksSel < len(m.networks)-1 {
+			m.networksSel++
+		}
+		return m, nil
+	case "k", "up":
+		if m.networksSel > 0 {
+			m.networksSel--
+		}
+		return m, nil
+	case "g", "home":
+		m.networksSel = 0
+		return m, nil
+	case "G", "end":
+		if len(m.networks) > 0 {
+			m.networksSel = len(m.networks) - 1
+		}
+		return m, nil
+	case "s":
+		if n, ok := m.currentNetwork(); ok && !n.Active {
+			return m, networkActionCmd(m.client, "start", n.Name, m.client.StartNetwork)
+		}
+		return m, nil
+	case "S":
+		if n, ok := m.currentNetwork(); ok && n.Active {
+			return m, networkActionCmd(m.client, "stop", n.Name, m.client.StopNetwork)
+		}
+		return m, nil
+	case "a":
+		if n, ok := m.currentNetwork(); ok {
+			return m, networkActionCmd(m.client, "autostart", n.Name, m.client.ToggleNetworkAutostart)
+		}
+		return m, nil
+	case "R", "F5":
+		return m, loadNetworksCmd(m.client)
+	}
+	return m, nil
+}
+
+// handlePoolsKey handles keys while in the storage pools view.
+func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = viewMain
+		return m, nil
+	case "j", "down":
+		if m.poolsSel < len(m.pools)-1 {
+			m.poolsSel++
+		}
+		return m, nil
+	case "k", "up":
+		if m.poolsSel > 0 {
+			m.poolsSel--
+		}
+		return m, nil
+	case "g", "home":
+		m.poolsSel = 0
+		return m, nil
+	case "G", "end":
+		if len(m.pools) > 0 {
+			m.poolsSel = len(m.pools) - 1
+		}
+		return m, nil
+	case "s":
+		if p, ok := m.currentPool(); ok && p.State != "running" {
+			return m, networkActionCmd(m.client, "start", p.Name, m.client.StartPool)
+		}
+		return m, nil
+	case "S":
+		if p, ok := m.currentPool(); ok && p.State == "running" {
+			return m, networkActionCmd(m.client, "stop", p.Name, m.client.StopPool)
+		}
+		return m, nil
+	case "enter", "d":
+		if p, ok := m.currentPool(); ok {
+			m.mode = viewVolumes
+			m.volumesFor = p.Name
+			m.volumesSel = 0
+			m.volumes = nil
+			return m, loadVolumesCmd(m.client, p.Name)
+		}
+		return m, nil
+	case "R", "F5":
+		return m, loadPoolsCmd(m.client)
+	}
+	return m, nil
+}
+
+// handleVolumesKey handles keys while in the volumes drill-down.
+func (m Model) handleVolumesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.mode = viewPools
+		return m, nil
+	case "j", "down":
+		if m.volumesSel < len(m.volumes)-1 {
+			m.volumesSel++
+		}
+		return m, nil
+	case "k", "up":
+		if m.volumesSel > 0 {
+			m.volumesSel--
+		}
+		return m, nil
+	case "g", "home":
+		m.volumesSel = 0
+		return m, nil
+	case "G", "end":
+		if len(m.volumes) > 0 {
+			m.volumesSel = len(m.volumes) - 1
+		}
+		return m, nil
+	case "R", "F5":
+		return m, loadVolumesCmd(m.client, m.volumesFor)
+	}
+	return m, nil
+}
+
+func (m Model) currentNetwork() (lv.Network, bool) {
+	if m.networksSel < 0 || m.networksSel >= len(m.networks) {
+		return lv.Network{}, false
+	}
+	return m.networks[m.networksSel], true
+}
+
+func (m Model) currentPool() (lv.StoragePool, bool) {
+	if m.poolsSel < 0 || m.poolsSel >= len(m.pools) {
+		return lv.StoragePool{}, false
+	}
+	return m.pools[m.poolsSel], true
+}
+
+// networkActionCmd is a generic action runner used by network and pool keys.
+func networkActionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd {
+	return func() tea.Msg {
+		return actionResultMsg{action: action, name: name, err: fn(name)}
+	}
 }
 
 // detailBodyHeight returns the number of XML lines visible in the detail pane.
