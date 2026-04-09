@@ -305,6 +305,48 @@ func (c *Client) Resume(name string) error {
 	return c.withDomain(name, func(d *libvirt.Domain) error { return d.Resume() })
 }
 
+// Undefine removes a defined (stopped) domain from libvirt. Snapshots and
+// managed-save state are removed too. Will fail if the domain is running.
+func (c *Client) Undefine(name string) error {
+	return c.withDomain(name, func(d *libvirt.Domain) error {
+		flags := libvirt.DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
+			libvirt.DOMAIN_UNDEFINE_MANAGED_SAVE |
+			libvirt.DOMAIN_UNDEFINE_NVRAM
+		return d.UndefineFlags(flags)
+	})
+}
+
+// HostInfo holds a small subset of libvirt's NodeInfo plus a name.
+type HostInfo struct {
+	Hostname  string
+	CPUModel  string
+	CPUs      uint
+	CoresPerSocket uint32
+	Sockets   uint32
+	Threads   uint32
+	MemoryKB  uint64
+}
+
+// Host returns basic host node information from libvirt.
+func (c *Client) Host() (HostInfo, error) {
+	if c == nil || c.conn == nil {
+		return HostInfo{}, fmt.Errorf("nil client")
+	}
+	ni, err := c.conn.GetNodeInfo()
+	if err != nil {
+		return HostInfo{}, err
+	}
+	return HostInfo{
+		Hostname:       c.Hostname(),
+		CPUModel:       ni.Model,
+		CPUs:           ni.Cpus,
+		CoresPerSocket: ni.Cores,
+		Sockets:        ni.Sockets,
+		Threads:        ni.Threads,
+		MemoryKB:       ni.Memory,
+	}, nil
+}
+
 // SwapInfo describes the swap state of a guest, queried via qemu-guest-agent.
 type SwapInfo struct {
 	Available  bool      // true only if QGA was reachable and parsing succeeded

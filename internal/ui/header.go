@@ -236,19 +236,54 @@ func (m Model) idleHeaderView(d lv.Domain, boxWidth int) string {
 	return headerBox.Width(boxWidth).Render(body)
 }
 
-// hostHeaderView is shown when no VM is selected (empty list, etc.).
+// hostHeaderView is shown when no VM is selected. It now shows aggregate
+// host node info: CPU model + cores, total RAM, allocated RAM, domain counts.
 func (m Model) hostHeaderView(boxWidth int) string {
 	running := 0
+	var allocKB uint64
 	for _, d := range m.snap.Domains {
 		if d.State == lv.StateRunning {
 			running++
+			allocKB += d.MaxMemKB
 		}
 	}
+
 	title := headerTitle.Render("host: "+m.snap.Hostname) +
 		headerLabel.Render("  ("+m.snap.URI+")")
-	stat := headerLabel.Render("domains: ") + headerValue.Render(fmt.Sprintf("%d", len(m.snap.Domains))) +
-		headerLabel.Render("    running: ") + headerValue.Render(fmt.Sprintf("%d", running))
-	body := lipgloss.JoinVertical(lipgloss.Left, title, "", stat)
+
+	// Line 1: CPU model and total cores from libvirt NodeInfo (cached on init).
+	cpuLine := ""
+	if m.host.CPUs > 0 {
+		cpuLine = headerLabel.Render("CPU:  ") +
+			headerValue.Render(fmt.Sprintf("%s — %d cores", m.host.CPUModel, m.host.CPUs))
+	}
+
+	// Line 2: total host memory and total allocated to running VMs.
+	memLine := ""
+	if m.host.MemoryKB > 0 {
+		allocPct := float64(allocKB) / float64(m.host.MemoryKB) * 100
+		memLine = headerLabel.Render("MEM:  ") +
+			headerValue.Render(fmt.Sprintf("%s total", formatKB(m.host.MemoryKB))) +
+			headerLabel.Render("    allocated to VMs: ") +
+			headerValue.Render(fmt.Sprintf("%s (%.0f%%)", formatKB(allocKB), allocPct))
+	}
+
+	// Line 3: domain counts.
+	stat := headerLabel.Render("DOMS: ") +
+		headerValue.Render(fmt.Sprintf("%d", len(m.snap.Domains))) +
+		headerLabel.Render("    running: ") +
+		headerValue.Render(fmt.Sprintf("%d", running))
+
+	parts := []string{title, ""}
+	if cpuLine != "" {
+		parts = append(parts, cpuLine)
+	}
+	if memLine != "" {
+		parts = append(parts, memLine)
+	}
+	parts = append(parts, stat)
+
+	body := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	return headerBox.Width(boxWidth).Render(body)
 }
 

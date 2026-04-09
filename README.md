@@ -60,10 +60,19 @@ go install github.com/llcoolkm/dirt@latest
 dirt
 ```
 
-By default `dirt` connects to `qemu:///system`. To target a different libvirt
-URI, set the standard environment variable:
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--uri <uri>` | `$LIBVIRT_DEFAULT_URI` or `qemu:///system` | libvirt URI to connect to |
+| `--refresh <duration>` | `2s` | refresh interval (clamped to 200ms minimum) |
+| `--version` | — | print version and exit |
+
+Examples:
 
 ```sh
+dirt --refresh 1s
+dirt --uri qemu+ssh://root@otherhost/system
 LIBVIRT_DEFAULT_URI=qemu+ssh://root@otherhost/system dirt
 ```
 
@@ -103,6 +112,8 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `p` | pause |
 | `R` | resume from pause |
 | `c` | open serial console (`Ctrl-]` to detach) |
+| `e` | edit XML in `$EDITOR` (`virsh edit`) |
+| `x` | undefine — delete a stopped VM (asks `y` to confirm) |
 
 ### Detail view
 | Key | Action |
@@ -184,11 +195,9 @@ dirt/
 
 ## Caveats and known limits
 
-- **No snapshot management yet** (create / list / restore / delete) — planned
-- **No XML editing yet** (`virsh edit` integration) — planned
-- **No undefine / delete domain yet** — planned
-- **Networks / storage pools / volumes** views — not in v0.1
-- **Single host** — multi-host switching is not in v0.1, but `LIBVIRT_DEFAULT_URI` works for any single libvirt endpoint
+- **No snapshot management yet** (create / list / restore / delete) — planned for v0.2
+- **Networks / storage pools / volumes** views — not yet, planned for v0.3
+- **Single host** — multi-host switching is not yet, but `--uri` / `LIBVIRT_DEFAULT_URI` works for any single libvirt endpoint
 - **Memory bar accuracy** depends on the guest's balloon driver. Without one, falls back to allocated memory (which always reads as 100% in libvirt's eyes)
 - **Console detach** uses `Ctrl-]` (the `virsh console` default)
 

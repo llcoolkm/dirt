@@ -13,8 +13,8 @@ import (
 	"github.com/llcoolkm/dirt/internal/lv"
 )
 
-// refreshInterval controls how often we re-snapshot libvirt.
-const refreshInterval = 2 * time.Second
+// defaultRefreshInterval is the fall-back tick rate when none is configured.
+const defaultRefreshInterval = 2 * time.Second
 
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
 // re-querying QGA. We refresh on tick if older than this.
@@ -24,6 +24,9 @@ const swapTTL = 5 * time.Second
 type Model struct {
 	client *lv.Client
 
+	// refreshInterval controls the snapshot tick rate. Set via WithRefreshInterval.
+	refreshInterval time.Duration
+
 	snap *lv.Snapshot
 	err  error
 
@@ -32,6 +35,9 @@ type Model struct {
 
 	// QGA-backed swap info, keyed by domain name.
 	swap map[string]lv.SwapInfo
+
+	// host info — fetched once at startup, immutable thereafter.
+	host lv.HostInfo
 
 	// Layout.
 	width, height int
@@ -101,11 +107,22 @@ func (s sortColumn) String() string {
 // New constructs a fresh Model bound to the given libvirt client.
 func New(c *lv.Client) Model {
 	return Model{
-		client:     c,
-		history:    make(map[string]*domHistory),
-		swap:       make(map[string]lv.SwapInfo),
-		sortColumn: sortByState, // running first by default
+		client:          c,
+		refreshInterval: defaultRefreshInterval,
+		history:         make(map[string]*domHistory),
+		swap:            make(map[string]lv.SwapInfo),
+		sortColumn:      sortByState, // running first by default
 	}
+}
+
+// WithRefreshInterval returns a copy of the model with the snapshot tick rate
+// set to d. Values below 200ms are clamped to 200ms to protect libvirt.
+func (m Model) WithRefreshInterval(d time.Duration) Model {
+	if d < 200*time.Millisecond {
+		d = 200 * time.Millisecond
+	}
+	m.refreshInterval = d
+	return m
 }
 
 // ──────────────────────────── Tea messages ───────────────────────────────────
@@ -129,6 +146,11 @@ type detailLoadedMsg struct {
 	err  error
 }
 
+type hostLoadedMsg struct {
+	host lv.HostInfo
+	err  error
+}
+
 type swapMsg struct {
 	name string
 	info lv.SwapInfo
@@ -136,8 +158,8 @@ type swapMsg struct {
 
 // ──────────────────────────── Commands ───────────────────────────────────────
 
-func tickCmd() tea.Cmd {
-	return tea.Tick(refreshInterval, func(t time.Time) tea.Msg { return tickMsg(t) })
+func tickCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
 func loadCmd(c *lv.Client) tea.Cmd {
@@ -160,6 +182,13 @@ func loadDetailCmd(c *lv.Client, name string) tea.Cmd {
 	}
 }
 
+func loadHostCmd(c *lv.Client) tea.Cmd {
+	return func() tea.Msg {
+		h, err := c.Host()
+		return hostLoadedMsg{host: h, err: err}
+	}
+}
+
 func swapCmd(c *lv.Client, name string) tea.Cmd {
 	return func() tea.Msg {
 		return swapMsg{name: name, info: c.Swap(name)}
@@ -169,7 +198,7 @@ func swapCmd(c *lv.Client, name string) tea.Cmd {
 // ──────────────────────────── Init ───────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(loadCmd(m.client), tickCmd())
+	return tea.Batch(loadCmd(m.client), loadHostCmd(m.client), tickCmd(m.refreshInterval))
 }
 
 // ──────────────────────────── Update ─────────────────────────────────────────
@@ -183,7 +212,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		return m, tea.Batch(loadCmd(m.client), tickCmd())
+		return m, tea.Batch(loadCmd(m.client), tickCmd(m.refreshInterval))
 
 	case snapshotMsg:
 		if msg.err != nil {
@@ -198,6 +227,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case swapMsg:
 		m.swap[msg.name] = msg.info
+		return m, nil
+
+	case hostLoadedMsg:
+		if msg.err == nil {
+			m.host = msg.host
+		}
 		return m, nil
 
 	case actionResultMsg:
@@ -377,6 +412,20 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.runConsole(d.Name)
 		}
 		return m, nil
+
+	case "e":
+		if d, ok := m.currentDomain(); ok {
+			return m, m.runEdit(d.Name)
+		}
+		return m, nil
+
+	case "x":
+		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
+			m.confirming = true
+			m.confirmAction = "undefine"
+			m.confirmName = d.Name
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -530,6 +579,8 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch action {
 		case "destroy":
 			return m, actionCmd(m.client, "destroy", name, m.client.Destroy)
+		case "undefine":
+			return m, actionCmd(m.client, "undefine", name, m.client.Undefine)
 		}
 		return m, nil
 	default:
@@ -779,5 +830,16 @@ func (m Model) runConsole(name string) tea.Cmd {
 		// Reset terminal stdin echo just in case virsh left it weird.
 		_ = os.Stdin.Sync()
 		return actionResultMsg{action: "console", name: name}
+	})
+}
+
+// runEdit suspends the Bubble Tea program and execs `virsh edit <name>`,
+// which opens $EDITOR on the live XML. Resumes when the editor exits.
+func (m Model) runEdit(name string) tea.Cmd {
+	return tea.ExecProcess(exec.Command("virsh", "-c", m.client.URI(), "edit", name), func(err error) tea.Msg {
+		if err != nil {
+			return actionResultMsg{action: "edit", name: name, err: err}
+		}
+		return actionResultMsg{action: "edit", name: name}
 	})
 }

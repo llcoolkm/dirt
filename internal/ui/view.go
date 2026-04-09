@@ -9,10 +9,15 @@ import (
 )
 
 // View is the root render — composes header, list, and status bar,
-// or shows the detail / help overlays as appropriate.
+// or shows the detail / help / splash overlays as appropriate.
 func (m Model) View() string {
 	if m.err != nil && m.snap == nil {
 		return errorStyle.Render("dirt: "+m.err.Error()) + "\n"
+	}
+
+	// First-tick splash before any snapshot has landed.
+	if m.snap == nil {
+		return m.splashView()
 	}
 
 	if m.showHelp {
@@ -29,6 +34,29 @@ func (m Model) View() string {
 		m.statusView(),
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// splashView is shown during the first connection, before any snapshot has
+// been received. Centred in the terminal so it does not jump on resize.
+func (m Model) splashView() string {
+	w := m.contentWidth()
+	h := m.height
+	if h == 0 {
+		h = 24
+	}
+
+	logo := headerTitle.Render("dirt") + headerLabel.Render(" — David's virtual UI")
+	sub := headerLabel.Render("connecting to libvirt") +
+		flashStyle.Render("…")
+
+	body := lipgloss.JoinVertical(lipgloss.Center, logo, "", sub)
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colBorder).
+		Padding(1, 4).
+		Render(body)
+
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
 }
 
 // statusView renders the bottom status bar — flash, filter prompt, or key hints.
