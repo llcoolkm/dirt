@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -117,7 +119,8 @@ type Domain struct {
 	NrVCPU     uint
 	MaxMemKB   uint64
 	MemoryKB   uint64
-	CPUTimeNs  uint64 // cumulative
+	CPUTimeNs  uint64    // cumulative
+	BootedAt   time.Time // qemu process start time (zero for remote URIs)
 	Persistent bool
 	Autostart  bool
 	SampledAt  time.Time
@@ -263,10 +266,12 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 		// Make sure the guest balloon driver pushes memory stats on a regular
 		// cadence. By default the QEMU balloon stat period is 0 ("on demand")
 		// which makes the numbers stale. We set it once per session.
-		// Also probe for the guest's primary IPv4 address.
+		// Also probe for the guest's primary IPv4 address and qemu process
+		// start time (the latter is local-only).
 		if dom.State == StateRunning {
 			c.ensureStatsPeriod(d, dom.UUID)
 			dom.IP = primaryIPv4(d)
+			dom.BootedAt = c.bootedAt(name)
 		}
 
 		// Sum block stats across all disks.
@@ -870,6 +875,35 @@ func (c *Client) XMLDesc(name string) (string, error) {
 		return nil
 	})
 	return out, err
+}
+
+// bootedAt returns the qemu process start time for a running domain by
+// reading the libvirt PID file at /run/libvirt/qemu/<name>.pid and using
+// the kernel-provided ModTime of /proc/<pid> (which equals the process
+// creation time on Linux). Returns zero time for remote URIs or any failure.
+func (c *Client) bootedAt(name string) time.Time {
+	// Only meaningful when libvirt is on the same host as dirt.
+	if !strings.HasPrefix(c.uri, "qemu:///") {
+		return time.Time{}
+	}
+
+	// libvirt writes the qemu PID to /run/libvirt/qemu/<domain>.pid by default.
+	pidPath := "/run/libvirt/qemu/" + name + ".pid"
+	pidBytes, err := os.ReadFile(pidPath)
+	if err != nil {
+		return time.Time{}
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil || pid <= 0 {
+		return time.Time{}
+	}
+
+	// On Linux, the mtime of /proc/<pid> is set to the process creation time.
+	info, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
 }
 
 // primaryIPv4 returns the first non-loopback IPv4 address of the domain.

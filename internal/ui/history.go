@@ -6,6 +6,8 @@ import (
 	"github.com/llcoolkm/dirt/internal/lv"
 )
 
+
+
 // historyWindow is how many samples we keep per metric for sparklines.
 const historyWindow = 30
 
@@ -118,12 +120,27 @@ func (h *domHistory) update(d lv.Domain) {
 	h.hasPrev = true
 }
 
-// uptime returns "≥ duration" since dirt first saw this VM running.
+// uptime returns the dirt-side uptime estimate (since we first saw the VM
+// running). Used as a fallback when no real boot time is available.
 func (h *domHistory) uptime() time.Duration {
 	if h.firstRunningSince.IsZero() {
 		return 0
 	}
 	return time.Since(h.firstRunningSince)
+}
+
+// effectiveUptime returns the most accurate uptime we can compute for a domain,
+// preferring the real qemu process start time over the dirt-side estimate.
+// The bool is true when the value comes from the kernel (accurate) and false
+// when it comes from the dirt-side observation window (an under-estimate).
+func effectiveUptime(d lv.Domain, h *domHistory) (time.Duration, bool) {
+	if !d.BootedAt.IsZero() {
+		return time.Since(d.BootedAt), true
+	}
+	if h != nil {
+		return h.uptime(), false
+	}
+	return 0, false
 }
 
 // reset wipes history (used when a domain stops, so old rates don't linger).

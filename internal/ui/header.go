@@ -44,8 +44,12 @@ func (m Model) runningHeaderView(d lv.Domain, boxWidth int) string {
 	if d.OS != "" {
 		title += headerLabel.Render("  os ") + headerValue.Render(d.OS)
 	}
-	if up := h.uptime(); up > 0 {
-		title += headerLabel.Render("  uptime ") + headerValue.Render("≥"+formatDuration(up))
+	if up, accurate := effectiveUptime(d, h); up > 0 {
+		label := formatDuration(up)
+		if !accurate {
+			label = "≥" + label
+		}
+		title += headerLabel.Render("  uptime ") + headerValue.Render(label)
 	}
 
 	// Inner content width — box has 1 char border + 1 char padding on each side.

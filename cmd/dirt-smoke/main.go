@@ -33,11 +33,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("%-20s %-10s %-16s %-15s %4s %5s\n",
-		"NAME", "STATE", "IP", "OS", "ID", "vCPU")
+	fmt.Printf("%-20s %-10s %-16s %-15s %4s %5s   %s\n",
+		"NAME", "STATE", "IP", "OS", "ID", "vCPU", "BOOTED")
 	for _, d := range snap.Domains {
-		fmt.Printf("%-20s %-10s %-16s %-15s %4d %5d\n",
-			d.Name, d.State, d.IP, d.OS, d.ID, d.NrVCPU)
+		booted := "—"
+		if !d.BootedAt.IsZero() {
+			booted = d.BootedAt.Format("2006-01-02 15:04:05")
+		}
+		fmt.Printf("%-20s %-10s %-16s %-15s %4d %5d   %s\n",
+			d.Name, d.State, d.IP, d.OS, d.ID, d.NrVCPU, booted)
 	}
 	fmt.Printf("\n%d domains total\n\n", len(snap.Domains))
 

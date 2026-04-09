@@ -110,10 +110,15 @@ func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
 	mem := formatKB(d.MaxMemKB)
 	cpu := "—"
 	uptime := "—"
-	if d.State == lv.StateRunning && h != nil {
-		cpu = fmt.Sprintf("%5.1f%%", h.currentCPU())
-		if up := h.uptime(); up > 0 {
+	if d.State == lv.StateRunning {
+		if h != nil {
+			cpu = fmt.Sprintf("%5.1f%%", h.currentCPU())
+		}
+		if up, accurate := effectiveUptime(d, h); up > 0 {
 			uptime = formatDuration(up)
+			if !accurate {
+				uptime = "≥" + uptime
+			}
 		}
 	}
 
