@@ -155,7 +155,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 |-----|--------|
 | `j` / `k` | navigate pools or volumes |
 | `s` / `S` | start / stop pool |
-| `⏎` / `d` | drill into pool's volumes |
+| `Enter` / `d` | drill into pool's volumes |
 | `R` / `F5` | refresh |
 | `esc` / `q` | back |
 

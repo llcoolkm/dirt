@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,6 +144,11 @@ type Domain struct {
 	BlockWrReqs  uint64
 	BlockRdTimes uint64 // cumulative read time (ns) — for latency
 	BlockWrTimes uint64
+
+	// Disk inventory — populated via virDomainGetBlockInfo for every disk.
+	NumDisks                 int
+	TotalDiskCapacityBytes   uint64 // sum of virtual sizes (what the guest sees)
+	TotalDiskAllocationBytes uint64 // sum of actual on-host disk usage (sparse-aware)
 	NetRxBytes   uint64
 	NetTxBytes   uint64
 	NetRxPkts    uint64
@@ -274,6 +280,10 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			dom.BootedAt = c.bootedAt(name)
 		}
 
+		// Disk inventory is available for both running and stopped domains —
+		// libvirt reads the qcow2 header directly when no qemu has the file.
+		dom.NumDisks, dom.TotalDiskCapacityBytes, dom.TotalDiskAllocationBytes = diskInventory(d)
+
 		// Sum block stats across all disks.
 		for _, bs := range s.Block {
 			if bs.RdBytesSet {
@@ -371,16 +381,19 @@ func (c *Client) Undefine(name string) error {
 
 // HostInfo holds a small subset of libvirt's NodeInfo plus a name.
 type HostInfo struct {
-	Hostname  string
-	CPUModel  string
-	CPUs      uint
+	Hostname       string
+	CPUModel       string // CPU brand string, e.g. "AMD Ryzen AI 9 HX 370"
+	CPUs           uint
 	CoresPerSocket uint32
-	Sockets   uint32
-	Threads   uint32
-	MemoryKB  uint64
+	Sockets        uint32
+	Threads        uint32
+	MemoryKB       uint64
+	OSPretty       string // PRETTY_NAME from /etc/os-release, e.g. "Ubuntu 25.04"
 }
 
-// Host returns basic host node information from libvirt.
+// Host returns basic host node information from libvirt, supplemented by
+// /proc/cpuinfo (real CPU brand string) and /etc/os-release (OS pretty name)
+// when libvirt is local.
 func (c *Client) Host() (HostInfo, error) {
 	if c == nil || c.conn == nil {
 		return HostInfo{}, fmt.Errorf("nil client")
@@ -389,15 +402,110 @@ func (c *Client) Host() (HostInfo, error) {
 	if err != nil {
 		return HostInfo{}, err
 	}
-	return HostInfo{
+	h := HostInfo{
 		Hostname:       c.Hostname(),
-		CPUModel:       ni.Model,
+		CPUModel:       ni.Model, // libvirt usually returns the arch ("x86_64")
 		CPUs:           ni.Cpus,
 		CoresPerSocket: ni.Cores,
 		Sockets:        ni.Sockets,
 		Threads:        ni.Threads,
 		MemoryKB:       ni.Memory,
-	}, nil
+	}
+	// Override the CPU brand and add the OS label from /proc and /etc when
+	// libvirt is on the same host as dirt. For remote URIs we leave the
+	// libvirt-provided values in place.
+	if strings.HasPrefix(c.uri, "qemu:///") {
+		if model := readCPUModelName(); model != "" {
+			h.CPUModel = model
+		}
+		h.OSPretty = readOSPrettyName()
+	}
+	return h, nil
+}
+
+// GuestUptime is a guest-side uptime sample, fetched via qemu-guest-agent.
+// Available is true only if the QGA call succeeded; otherwise Err is set.
+type GuestUptime struct {
+	Available bool
+	BootedAt  time.Time // computed: FetchedAt - reported uptime
+	Uptime    time.Duration
+	FetchedAt time.Time
+	Err       error
+}
+
+// QueryGuestUptime asks the qemu-guest-agent in the named domain for its
+// guest-side uptime by running `cat /proc/uptime` via guest-exec. Returns
+// Available=false (and a non-nil Err) when QGA is not installed or fails.
+//
+// This is the only way to get *guest* uptime (which resets on a guest reboot
+// even when the qemu process keeps running). The qemu process start time
+// from /proc on the host does not capture in-VM reboots.
+func (c *Client) QueryGuestUptime(name string) GuestUptime {
+	info := GuestUptime{FetchedAt: time.Now()}
+	err := c.withDomain(name, func(d *libvirt.Domain) error {
+		startCmd := `{"execute":"guest-exec","arguments":{"path":"/usr/bin/cat","arg":["/proc/uptime"],"capture-output":true}}`
+		resp, err := d.QemuAgentCommand(startCmd, 2, 0)
+		if err != nil {
+			return fmt.Errorf("guest-exec: %w", err)
+		}
+		var startResp struct {
+			Return struct {
+				PID int `json:"pid"`
+			} `json:"return"`
+		}
+		if err := json.Unmarshal([]byte(resp), &startResp); err != nil {
+			return fmt.Errorf("decode guest-exec: %w", err)
+		}
+		pid := startResp.Return.PID
+
+		statusCmd := fmt.Sprintf(`{"execute":"guest-exec-status","arguments":{"pid":%d}}`, pid)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			sresp, err := d.QemuAgentCommand(statusCmd, 2, 0)
+			if err != nil {
+				return fmt.Errorf("guest-exec-status: %w", err)
+			}
+			var st struct {
+				Return struct {
+					Exited   bool   `json:"exited"`
+					ExitCode int    `json:"exitcode"`
+					OutData  string `json:"out-data"`
+				} `json:"return"`
+			}
+			if err := json.Unmarshal([]byte(sresp), &st); err != nil {
+				return fmt.Errorf("decode status: %w", err)
+			}
+			if !st.Return.Exited {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			if st.Return.ExitCode != 0 {
+				return fmt.Errorf("cat /proc/uptime exit %d", st.Return.ExitCode)
+			}
+			data, err := base64.StdEncoding.DecodeString(st.Return.OutData)
+			if err != nil {
+				return fmt.Errorf("decode out-data: %w", err)
+			}
+			// /proc/uptime is "<seconds_since_boot> <idle_seconds>".
+			fields := strings.Fields(string(data))
+			if len(fields) < 1 {
+				return fmt.Errorf("unexpected /proc/uptime")
+			}
+			sec, err := strconv.ParseFloat(fields[0], 64)
+			if err != nil {
+				return fmt.Errorf("parse uptime: %w", err)
+			}
+			info.Uptime = time.Duration(sec * float64(time.Second))
+			info.BootedAt = info.FetchedAt.Add(-info.Uptime)
+			info.Available = true
+			return nil
+		}
+		return fmt.Errorf("guest-exec timed out")
+	})
+	if err != nil {
+		info.Err = err
+	}
+	return info
 }
 
 // SwapInfo describes the swap state of a guest, queried via qemu-guest-agent.
@@ -503,6 +611,12 @@ type DomainSnapshot struct {
 	CreatedAt time.Time
 	IsCurrent bool
 	Desc      string
+
+	// SizeBytes is the saved VM-state size summed across all disks. For
+	// snapshots taken while running this is dominated by the saved RAM; for
+	// snapshots of stopped domains it is typically zero. Returned by
+	// `qemu-img info` and may be 0 if qemu-img wasn't reachable.
+	SizeBytes int64
 }
 
 // snapshotXML is the minimal XML schema we parse out of GetXMLDesc.
@@ -516,10 +630,19 @@ type snapshotXML struct {
 	} `xml:"parent"`
 }
 
-// ListSnapshots returns all snapshots of the named domain.
+// ListSnapshots returns all snapshots of the named domain. Sizes are
+// populated via qemu-img on the host (best effort — failures leave
+// SizeBytes at 0).
 func (c *Client) ListSnapshots(name string) ([]DomainSnapshot, error) {
 	var out []DomainSnapshot
+	var diskPaths []string
 	err := c.withDomain(name, func(d *libvirt.Domain) error {
+		// Pull disk file paths from the domain XML so we can ask qemu-img
+		// for snapshot sizes after we list them.
+		if x, err := d.GetXMLDesc(0); err == nil {
+			diskPaths = parseDiskPaths(x)
+		}
+
 		snaps, err := d.ListAllSnapshots(0)
 		if err != nil {
 			return err
@@ -553,7 +676,83 @@ func (c *Client) ListSnapshots(name string) ([]DomainSnapshot, error) {
 		}
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return out, err
+	}
+
+	// Populate sizes via qemu-img info — runs once per disk, host-side.
+	if len(out) > 0 && len(diskPaths) > 0 {
+		sizes := snapshotSizesFromDisks(diskPaths)
+		for i := range out {
+			out[i].SizeBytes = sizes[out[i].Name]
+		}
+	}
+	return out, nil
+}
+
+// parseDiskPaths returns the on-host file paths of every actual disk
+// (device='disk') in the given domain XML. CD-ROM and floppy devices are
+// deliberately skipped — cloud-init ISOs and similar bootstrap media should
+// not count as data disks.
+func parseDiskPaths(x string) []string {
+	type source struct {
+		File string `xml:"file,attr"`
+	}
+	type disk struct {
+		Type   string `xml:"type,attr"`
+		Device string `xml:"device,attr"`
+		Source source `xml:"source"`
+	}
+	type devices struct {
+		Disks []disk `xml:"disk"`
+	}
+	type domain struct {
+		Devices devices `xml:"devices"`
+	}
+	var d domain
+	if err := xml.Unmarshal([]byte(x), &d); err != nil {
+		return nil
+	}
+	var paths []string
+	for _, dk := range d.Devices.Disks {
+		// device defaults to "disk" when omitted; treat empty as disk too.
+		if dk.Device != "" && dk.Device != "disk" {
+			continue
+		}
+		if dk.Type == "file" && dk.Source.File != "" {
+			paths = append(paths, dk.Source.File)
+		}
+	}
+	return paths
+}
+
+// snapshotSizesFromDisks runs `qemu-img info -U --output=json` on each disk
+// path and returns a map of snapshot name → total VM-state-size summed across
+// all disks. The -U flag (force-share) is required because libvirt holds a
+// write lock on the qcow2 file while the VM is running.
+//
+// Returns an empty map if qemu-img isn't reachable or no snapshots are found.
+func snapshotSizesFromDisks(paths []string) map[string]int64 {
+	sizes := make(map[string]int64)
+	for _, p := range paths {
+		out, err := exec.Command("qemu-img", "info", "-U", "--output=json", p).Output()
+		if err != nil {
+			continue
+		}
+		var info struct {
+			Snapshots []struct {
+				Name        string `json:"name"`
+				VMStateSize int64  `json:"vm-state-size"`
+			} `json:"snapshots"`
+		}
+		if err := json.Unmarshal(out, &info); err != nil {
+			continue
+		}
+		for _, s := range info.Snapshots {
+			sizes[s.Name] += s.VMStateSize
+		}
+	}
+	return sizes
 }
 
 // CreateSnapshot creates a new snapshot on the named domain. If snapName is
@@ -875,6 +1074,30 @@ func (c *Client) XMLDesc(name string) (string, error) {
 		return nil
 	})
 	return out, err
+}
+
+// diskInventory enumerates the running domain's file-backed disks via the
+// libvirt domain XML and queries each one for capacity + allocation. Returns
+// (numDisks, totalCapacityBytes, totalAllocationBytes). Any field may be 0
+// if libvirt declines (e.g. on non-running domains for some backends).
+func diskInventory(d *libvirt.Domain) (int, uint64, uint64) {
+	x, err := d.GetXMLDesc(0)
+	if err != nil {
+		return 0, 0, 0
+	}
+	paths := parseDiskPaths(x)
+	var totalCap, totalAlloc uint64
+	count := 0
+	for _, p := range paths {
+		info, err := d.GetBlockInfo(p, 0)
+		if err != nil {
+			continue
+		}
+		totalCap += info.Capacity
+		totalAlloc += info.Allocation
+		count++
+	}
+	return count, totalCap, totalAlloc
 }
 
 // bootedAt returns the qemu process start time for a running domain by

@@ -13,7 +13,8 @@ import (
 const (
 	snapNameW    = 28
 	snapStateW   = 10
-	snapParentW  = 24
+	snapSizeW    = 8
+	snapParentW  = 18
 	snapCurrentW = 8
 	snapWhenW    = 19
 )
@@ -30,10 +31,11 @@ func (m Model) snapshotsView() string {
 		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
 		keyHint.Render("esc") + headerLabel.Render(" back")
 
-	// Header row.
-	headerRow := listHeaderRow.Render(strings.Join([]string{
+	// Header row. Leading space matches the per-row indent below.
+	headerRow := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", snapNameW),
 		padRight("STATE", snapStateW),
+		padLeft("SIZE", snapSizeW),
 		padRight("PARENT", snapParentW),
 		padRight("CURRENT", snapCurrentW),
 		padRight("CREATED", snapWhenW),
@@ -63,7 +65,7 @@ func (m Model) snapshotsView() string {
 	if m.snapshotInput {
 		prompt := keyHint.Render("name: ") + m.snapshotName +
 			lipgloss.NewStyle().Foreground(colAccent).Render("█") +
-			headerLabel.Render("   (enter to create, esc to cancel)")
+			headerLabel.Render("   (a-z 0-9 _ - . only · enter to create, esc to cancel)")
 		bottom = statusBar.Width(width).Render(" " + prompt)
 	} else if m.confirming {
 		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s snapshot “%s”? ", m.confirmAction, m.confirmName)) +
@@ -90,11 +92,16 @@ func renderSnapshotRow(s lv.DomainSnapshot, selected bool) string {
 	if !s.CreatedAt.IsZero() {
 		when = s.CreatedAt.Format("2006-01-02 15:04:05")
 	}
+	size := "—"
+	if s.SizeBytes > 0 {
+		size = formatBytes(float64(s.SizeBytes))
+	}
 	state := stateColorBySnapshotState(s.State).Render(padRight(s.State, snapStateW))
 
 	cols := []string{
 		padRight(truncate(s.Name, snapNameW), snapNameW),
 		state,
+		padLeft(size, snapSizeW),
 		padRight(truncate(s.Parent, snapParentW), snapParentW),
 		padRight(current, snapCurrentW),
 		padRight(when, snapWhenW),

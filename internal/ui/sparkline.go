@@ -6,6 +6,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// tail returns the last n elements of s. If s is shorter, returns s as-is.
+// Used to clip a rolling history buffer to a fixed display width.
+func tail(s []float64, n int) []float64 {
+	if n <= 0 {
+		return nil
+	}
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
+}
+
 // sparkline returns a Unicode-block sparkline for the given samples.
 // The output is exactly len(samples) cells wide.
 func sparkline(samples []float64) string {

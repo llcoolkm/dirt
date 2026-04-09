@@ -217,3 +217,50 @@ func readProcUptime(s *HostStats) error {
 	s.UptimeSeconds, _ = strconv.ParseFloat(fields[0], 64)
 	return nil
 }
+
+// readCPUModelName returns the CPU brand string from the first "model name"
+// line in /proc/cpuinfo, e.g. "AMD Ryzen AI 9 HX 370 w/ Radeon 890M". On
+// non-x86 architectures the field may be absent or differently named ("Hardware",
+// "cpu") — returns "" in that case so the caller can fall back.
+func readCPUModelName() string {
+	f, err := os.Open("/proc/cpuinfo")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "model name") {
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue
+		}
+		return strings.TrimSpace(line[colon+1:])
+	}
+	return ""
+}
+
+// readOSPrettyName returns the PRETTY_NAME field from /etc/os-release,
+// e.g. "Ubuntu 25.04" or "Debian GNU/Linux 12 (bookworm)". Returns "" if
+// the file is missing or unparseable.
+func readOSPrettyName() string {
+	f, err := os.Open("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "PRETTY_NAME=") {
+			continue
+		}
+		v := strings.TrimPrefix(line, "PRETTY_NAME=")
+		v = strings.Trim(v, `"'`)
+		return v
+	}
+	return ""
+}

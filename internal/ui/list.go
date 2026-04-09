@@ -16,8 +16,11 @@ const (
 	colOSW     = 13
 	colVCPUW   = 5
 	colMemW    = 8
+	colMemPctW = 6
 	colCPUW    = 7
 	colUptimeW = 8
+	colIOReadW = 5
+	colIOWriteW = 5
 )
 
 // listView renders the VM table.
@@ -59,7 +62,7 @@ func (m Model) listView() string {
 	rows = append(rows, header)
 	for i := m.offset; i < end; i++ {
 		d := doms[i]
-		row := renderDataRow(d, m.history[d.UUID], i == m.selected)
+		row := renderDataRow(d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected)
 		rows = append(rows, row)
 	}
 	return listBox.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
@@ -85,18 +88,23 @@ func renderHeaderRow(active sortColumn, desc bool) string {
 	cols := []string{
 		mark("NAME", sortByName, true, colNameW),
 		mark("STATE", sortByState, true, colStateW),
-		padRight("IP", colIPW),
-		padRight("OS", colOSW),
+		mark("IP", sortByIP, true, colIPW),
+		mark("OS", sortByOS, true, colOSW),
 		mark("vCPU", sortByVCPU, false, colVCPUW),
 		mark("MEM", sortByMem, false, colMemW),
+		mark("MEM%", sortByMemPct, false, colMemPctW),
 		mark("CPU%", sortByCPU, false, colCPUW),
-		padLeft("UPTIME", colUptimeW),
+		mark("UPTIME", sortByUptime, false, colUptimeW),
+		padLeft("IO-R", colIOReadW),
+		padLeft("IO-W", colIOWriteW),
 	}
-	return listHeaderRow.Render(strings.Join(cols, "  "))
+	// Leading space matches the per-row indent used by renderDataRow,
+	// so columns line up with their headers exactly.
+	return listHeaderRow.Render(" " + strings.Join(cols, "  "))
 }
 
 // renderDataRow renders one VM row, optionally highlighted.
-func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
+func renderDataRow(d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool) string {
 	name := truncate(d.Name, colNameW)
 	state := truncate(d.State.String(), colStateW)
 	ip := truncate(d.IP, colIPW)
@@ -108,13 +116,21 @@ func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
 		osLabel = "—"
 	}
 	mem := formatKB(d.MaxMemKB)
+	memPct := "—"
 	cpu := "—"
 	uptime := "—"
+	ior := "—"
+	iow := "—"
 	if d.State == lv.StateRunning {
 		if h != nil {
 			cpu = fmt.Sprintf("%5.1f%%", h.currentCPU())
+			ior = fmt.Sprintf("%.0f", currentRate(h.blockRdOps))
+			iow = fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
 		}
-		if up, accurate := effectiveUptime(d, h); up > 0 {
+		if pct, ok := domainMemUsedPct(d); ok {
+			memPct = fmt.Sprintf("%4.1f%%", pct)
+		}
+		if up, accurate := effectiveUptime(d, h, qga); up > 0 {
 			uptime = formatDuration(up)
 			if !accurate {
 				uptime = "≥" + uptime
@@ -131,8 +147,11 @@ func renderDataRow(d lv.Domain, h *domHistory, selected bool) string {
 		padRight(osLabel, colOSW),
 		padLeft(fmt.Sprintf("%d", d.NrVCPU), colVCPUW),
 		padLeft(mem, colMemW),
+		padLeft(memPct, colMemPctW),
 		padLeft(cpu, colCPUW),
 		padLeft(uptime, colUptimeW),
+		padLeft(ior, colIOReadW),
+		padLeft(iow, colIOWriteW),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {
@@ -169,6 +188,37 @@ func (m Model) contentWidth() int {
 	return m.width
 }
 
+// domainMemUsedPct computes the same "used memory percent" the per-VM header
+// renders in its multi-segment bar. Uses balloon stats when available; falls
+// back to the (less meaningful) currently-allocated memory.
+//
+// Returns ok=false when there's no usable signal (e.g. domain not running, or
+// balloon driver absent and MaxMem unknown).
+func domainMemUsedPct(d lv.Domain) (float64, bool) {
+	totalKB := d.BalloonAvailableKB
+	if totalKB == 0 {
+		totalKB = d.MaxMemKB
+	}
+	if totalKB == 0 {
+		return 0, false
+	}
+	hasBalloon := d.BalloonAvailableKB > 0 && d.BalloonUnusedKB > 0
+	var usedKB uint64
+	if hasBalloon {
+		freeKB := d.BalloonUnusedKB
+		cacheKB := d.BalloonDiskCachesKB
+		if totalKB > freeKB+cacheKB {
+			usedKB = totalKB - freeKB - cacheKB
+		}
+	} else {
+		usedKB = d.MemoryKB
+		if usedKB > totalKB {
+			usedKB = totalKB
+		}
+	}
+	return float64(usedKB) / float64(totalKB) * 100, true
+}
+
 func filterSuffix(f string) string {
 	if f == "" {
 		return ""
@@ -176,26 +226,43 @@ func filterSuffix(f string) string {
 	return " matching “" + f + "”"
 }
 
+// padRight pads s to w *visible cells* (not bytes), so multi-byte unicode like
+// the sort arrows ▲▼ and the ellipsis … line up correctly with ASCII columns.
+// Strings already containing ANSI escape sequences are also handled, since
+// lipgloss.Width strips them before measuring.
 func padRight(s string, w int) string {
-	if len(s) >= w {
-		return s[:w]
+	cw := lipgloss.Width(s)
+	if cw >= w {
+		return s
 	}
-	return s + strings.Repeat(" ", w-len(s))
+	return s + strings.Repeat(" ", w-cw)
 }
 
 func padLeft(s string, w int) string {
-	if len(s) >= w {
-		return s[:w]
+	cw := lipgloss.Width(s)
+	if cw >= w {
+		return s
 	}
-	return strings.Repeat(" ", w-len(s)) + s
+	return strings.Repeat(" ", w-cw) + s
 }
 
+// truncate shortens s so that its visible width is ≤ w, replacing the cut
+// portion with "…". Operates on runes, never byte-slicing UTF-8.
 func truncate(s string, w int) string {
-	if len(s) <= w {
+	if lipgloss.Width(s) <= w {
 		return s
 	}
 	if w < 1 {
 		return ""
 	}
-	return s[:w-1] + "…"
+	out := make([]rune, 0, w)
+	used := 0
+	for _, r := range s {
+		if used+1 > w-1 {
+			break
+		}
+		out = append(out, r)
+		used++
+	}
+	return string(out) + "…"
 }

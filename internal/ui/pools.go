@@ -33,11 +33,11 @@ func (m Model) poolsView() string {
 		headerLabel.Render("    ") +
 		keyHint.Render("s") + headerLabel.Render(" start  ") +
 		keyHint.Render("S") + headerLabel.Render(" stop  ") +
-		keyHint.Render("⏎") + headerLabel.Render(" volumes  ") +
+		keyHint.Render("Enter") + headerLabel.Render(" volumes  ") +
 		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
 		keyHint.Render("esc") + headerLabel.Render(" back")
 
-	header := listHeaderRow.Render(strings.Join([]string{
+	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", poolNameW),
 		padRight("STATE", poolStateW),
 		padRight("TYPE", poolTypeW),
@@ -110,12 +110,32 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 }
 
 func poolsStatusBar(m Model, width int) string {
+	if m.confirming {
+		label := friendlyConfirmAction(m.confirmAction)
+		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s “%s”? ", label, m.confirmName)) +
+			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
+		return statusBar.Width(width).Render(msg)
+	}
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
 	}
 	return statusBar.Width(width).Render(" " +
 		key("j/k") + " nav  " + key("s") + " start  " + key("S") + " stop  " +
-		key("⏎") + " volumes  " + key("R") + " refresh  " + key("esc") + " back")
+		key("Enter") + " volumes  " + key("R") + " refresh  " + key("esc") + " back")
+}
+
+// friendlyConfirmAction expands an internal action code into a human label
+// for the confirm prompt. Used by network and pool views.
+func friendlyConfirmAction(action string) string {
+	switch action {
+	case "stop-net":
+		return "stop network"
+	case "stop-pool":
+		return "stop pool"
+	case "delete-snap":
+		return "delete snapshot"
+	}
+	return action
 }
 
 // volumesView renders the volumes inside a storage pool.
@@ -127,7 +147,7 @@ func (m Model) volumesView() string {
 		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
 		keyHint.Render("esc") + headerLabel.Render(" back to pools")
 
-	header := listHeaderRow.Render(strings.Join([]string{
+	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", volNameW),
 		padRight("TYPE", volTypeW),
 		padLeft("CAPACITY", volCapW),

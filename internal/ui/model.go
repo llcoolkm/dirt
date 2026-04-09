@@ -33,6 +33,10 @@ const (
 // re-querying QGA. We refresh on tick if older than this.
 const swapTTL = 5 * time.Second
 
+// guestUptimeTTL controls how often we re-query QGA for guest uptime. Uptime
+// changes monotonically (or resets on reboot), so a slower refresh is fine.
+const guestUptimeTTL = 10 * time.Second
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	client *lv.Client
@@ -43,6 +47,10 @@ type Model struct {
 	// mode is the current high-level UI state.
 	mode viewMode
 
+	// prevMode remembers the view we were in before opening the help modal,
+	// so dismissing help returns the user to where they came from.
+	prevMode viewMode
+
 	snap *lv.Snapshot
 	err  error
 
@@ -51,6 +59,10 @@ type Model struct {
 
 	// QGA-backed swap info, keyed by domain name.
 	swap map[string]lv.SwapInfo
+
+	// QGA-backed guest uptime info, keyed by domain name. Used to detect
+	// in-guest reboots that the host-side qemu process start time misses.
+	guestUptime map[string]lv.GuestUptime
 
 	// host info — fetched once at startup, immutable thereafter.
 	host lv.HostInfo
@@ -125,15 +137,21 @@ type Model struct {
 	sortDesc   bool
 }
 
-// sortColumn enumerates the sortable columns in the VM list.
+// sortColumn enumerates the sortable columns in the VM list. The order
+// matches the visible column order so that the number-key bindings (1..9)
+// line up with the columns the master sees.
 type sortColumn int
 
 const (
-	sortByName sortColumn = iota
-	sortByState
-	sortByVCPU
-	sortByMem
-	sortByCPU
+	sortByName sortColumn = iota + 1 // 1
+	sortByState                       // 2
+	sortByIP                          // 3
+	sortByOS                          // 4
+	sortByVCPU                        // 5
+	sortByMem                         // 6
+	sortByMemPct                      // 7
+	sortByCPU                         // 8
+	sortByUptime                      // 9
 )
 
 func (s sortColumn) String() string {
@@ -142,12 +160,20 @@ func (s sortColumn) String() string {
 		return "name"
 	case sortByState:
 		return "state"
+	case sortByIP:
+		return "IP"
+	case sortByOS:
+		return "OS"
 	case sortByVCPU:
 		return "vCPU"
 	case sortByMem:
 		return "MEM"
+	case sortByMemPct:
+		return "MEM%"
 	case sortByCPU:
 		return "CPU%"
+	case sortByUptime:
+		return "uptime"
 	}
 	return "?"
 }
@@ -159,9 +185,14 @@ func New(c *lv.Client) Model {
 		refreshInterval: defaultRefreshInterval,
 		history:         make(map[string]*domHistory),
 		swap:            make(map[string]lv.SwapInfo),
+		guestUptime:     make(map[string]lv.GuestUptime),
 		sortColumn:      sortByState, // running first by default
 	}
 }
+
+// (sort enum values now start at 1, so the zero value of sortColumn is invalid;
+// New always sets it to sortByState above.)
+
 
 // WithRefreshInterval returns a copy of the model with the snapshot tick rate
 // set to d. Values below 200ms are clamped to 200ms to protect libvirt.
@@ -229,6 +260,11 @@ type volumesLoadedMsg struct {
 type swapMsg struct {
 	name string
 	info lv.SwapInfo
+}
+
+type guestUptimeMsg struct {
+	name string
+	info lv.GuestUptime
 }
 
 // ──────────────────────────── Commands ───────────────────────────────────────
@@ -305,6 +341,12 @@ func swapCmd(c *lv.Client, name string) tea.Cmd {
 	}
 }
 
+func guestUptimeCmd(c *lv.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		return guestUptimeMsg{name: name, info: c.QueryGuestUptime(name)}
+	}
+}
+
 // ──────────────────────────── Init ───────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
@@ -342,10 +384,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap = msg.snap
 		m.updateHistory()
 		m.boundSelection()
-		return m, m.maybeFetchSwap()
+		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case swapMsg:
 		m.swap[msg.name] = msg.info
+		return m, nil
+
+	case guestUptimeMsg:
+		m.guestUptime[msg.name] = msg.info
 		return m, nil
 
 	case hostLoadedMsg:
@@ -506,7 +552,14 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == viewHelp {
 		switch msg.String() {
 		case "?", "esc", "q":
-			m.mode = viewMain
+			// Return to the view we came from. Fall back to viewMain if
+			// somehow we got here without a previous mode set.
+			if m.prevMode != viewHelp && m.prevMode != 0 {
+				m.mode = m.prevMode
+			} else {
+				m.mode = viewMain
+			}
+			m.prevMode = viewMain
 		}
 		return m, nil
 	}
@@ -518,6 +571,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "?":
+		m.prevMode = m.mode
 		m.mode = viewHelp
 		return m, nil
 
@@ -526,7 +580,8 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = ""
 		return m, nil
 
-	// Sort by column. Same key again toggles direction.
+	// Sort by column. Same key again toggles direction. Numbers are aligned
+	// with the visible column order in the list table.
 	case "1":
 		m.toggleSort(sortByName)
 		return m, nil
@@ -534,26 +589,38 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.toggleSort(sortByState)
 		return m, nil
 	case "3":
-		m.toggleSort(sortByVCPU)
+		m.toggleSort(sortByIP)
 		return m, nil
 	case "4":
-		m.toggleSort(sortByMem)
+		m.toggleSort(sortByOS)
 		return m, nil
 	case "5":
+		m.toggleSort(sortByVCPU)
+		return m, nil
+	case "6":
+		m.toggleSort(sortByMem)
+		return m, nil
+	case "7":
+		m.toggleSort(sortByMemPct)
+		return m, nil
+	case "8":
 		m.toggleSort(sortByCPU)
+		return m, nil
+	case "9":
+		m.toggleSort(sortByUptime)
 		return m, nil
 
 	case "j", "down":
 		if m.selected < len(doms)-1 {
 			m.selected++
 		}
-		return m, m.maybeFetchSwap()
+		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case "k", "up":
 		if m.selected > 0 {
 			m.selected--
 		}
-		return m, m.maybeFetchSwap()
+		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case "g", "home":
 		m.selected = 0
@@ -606,8 +673,12 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "S":
+		// Graceful shutdown is destructive enough to warrant a confirmation —
+		// a busy guest losing power can corrupt state.
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
-			return m, actionCmd(m.client, "shutdown", d.Name, m.client.Shutdown)
+			m.confirming = true
+			m.confirmAction = "shutdown"
+			m.confirmName = d.Name
 		}
 		return m, nil
 
@@ -620,8 +691,11 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		// Reboot now requires confirmation — guest reboots can wedge a host.
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
-			return m, actionCmd(m.client, "reboot", d.Name, m.client.Reboot)
+			m.confirming = true
+			m.confirmAction = "reboot"
+			m.confirmName = d.Name
 		}
 		return m, nil
 
@@ -761,6 +835,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "N":
 		m.prevDetailMatch()
 		return m, nil
+
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
 	}
 	return m, nil
 }
@@ -811,6 +890,14 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, actionCmd(m.client, "destroy", name, m.client.Destroy)
 		case "undefine":
 			return m, actionCmd(m.client, "undefine", name, m.client.Undefine)
+		case "reboot":
+			return m, actionCmd(m.client, "reboot", name, m.client.Reboot)
+		case "shutdown":
+			return m, actionCmd(m.client, "shutdown", name, m.client.Shutdown)
+		case "stop-net":
+			return m, networkActionCmd(m.client, "stop network", name, m.client.StopNetwork)
+		case "stop-pool":
+			return m, networkActionCmd(m.client, "stop pool", name, m.client.StopPool)
 		}
 		return m, nil
 	default:
@@ -894,6 +981,16 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 			return flip(a.State < b.State)
 		}
 		return a.Name < b.Name
+	case sortByIP:
+		if a.IP != b.IP {
+			return flip(a.IP < b.IP)
+		}
+		return a.Name < b.Name
+	case sortByOS:
+		if a.OS != b.OS {
+			return flip(a.OS < b.OS)
+		}
+		return a.Name < b.Name
 	case sortByVCPU:
 		if a.NrVCPU != b.NrVCPU {
 			return flip(a.NrVCPU > b.NrVCPU)
@@ -902,6 +999,13 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 	case sortByMem:
 		if a.MaxMemKB != b.MaxMemKB {
 			return flip(a.MaxMemKB > b.MaxMemKB)
+		}
+		return a.Name < b.Name
+	case sortByMemPct:
+		va, _ := domainMemUsedPct(a)
+		vb, _ := domainMemUsedPct(b)
+		if va != vb {
+			return flip(va > vb)
 		}
 		return a.Name < b.Name
 	case sortByCPU:
@@ -916,6 +1020,16 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 		}
 		if va != vb {
 			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByUptime:
+		// Use the most accurate uptime source we have for each side.
+		ha := m.history[a.UUID]
+		hb := m.history[b.UUID]
+		ua, _ := effectiveUptime(a, ha, m.guestUptime[a.Name])
+		ub, _ := effectiveUptime(b, hb, m.guestUptime[b.Name])
+		if ua != ub {
+			return flip(ua > ub)
 		}
 		return a.Name < b.Name
 	}
@@ -1033,6 +1147,10 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSnapshotInputKey(msg)
 	}
 	switch msg.String() {
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
@@ -1091,6 +1209,10 @@ func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		name := strings.TrimSpace(m.snapshotName)
 		m.snapshotInput = false
 		m.snapshotName = ""
+		if name == "" {
+			m.flashf("✗ snapshot name cannot be empty")
+			return m, nil
+		}
 		domain := m.snapshotsFor
 		return m, tea.Batch(
 			func() tea.Msg {
@@ -1104,11 +1226,32 @@ func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	default:
-		if len(msg.String()) == 1 {
-			m.snapshotName += msg.String()
+		// Only accept characters QEMU's snapshot job IDs allow:
+		// [A-Za-z0-9._-]. Anything else (notably space) is silently
+		// ignored — typing it does nothing visible, which keeps the
+		// user from accidentally creating a name libvirt will reject.
+		s := msg.String()
+		if len(s) == 1 && isValidSnapshotChar(s[0]) {
+			m.snapshotName += s
 		}
 		return m, nil
 	}
+}
+
+// isValidSnapshotChar reports whether b is allowed in a libvirt/qemu snapshot
+// name. Matches QEMU's internal job-ID grammar [A-Za-z0-9._-].
+func isValidSnapshotChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= '0' && b <= '9':
+		return true
+	case b == '_' || b == '-' || b == '.':
+		return true
+	}
+	return false
 }
 
 func (m Model) handleSnapshotConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1152,7 +1295,14 @@ func (m Model) currentSnapshot() (lv.DomainSnapshot, bool) {
 
 // handleNetworksKey handles keys while in the networks view.
 func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirming {
+		return m.handleConfirmKey(msg)
+	}
 	switch msg.String() {
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
@@ -1180,8 +1330,11 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "S":
+		// Stop is dangerous — kills connectivity for every VM on this network.
 		if n, ok := m.currentNetwork(); ok && n.Active {
-			return m, networkActionCmd(m.client, "stop", n.Name, m.client.StopNetwork)
+			m.confirming = true
+			m.confirmAction = "stop-net"
+			m.confirmName = n.Name
 		}
 		return m, nil
 	case "a":
@@ -1197,7 +1350,14 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handlePoolsKey handles keys while in the storage pools view.
 func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirming {
+		return m.handleConfirmKey(msg)
+	}
 	switch msg.String() {
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
@@ -1225,8 +1385,11 @@ func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "S":
+		// Stopping a pool while VMs use its volumes is dangerous.
 		if p, ok := m.currentPool(); ok && p.State == "running" {
-			return m, networkActionCmd(m.client, "stop", p.Name, m.client.StopPool)
+			m.confirming = true
+			m.confirmAction = "stop-pool"
+			m.confirmName = p.Name
 		}
 		return m, nil
 	case "enter", "d":
@@ -1247,6 +1410,10 @@ func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleVolumesKey handles keys while in the volumes drill-down.
 func (m Model) handleVolumesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
 	case "esc", "q":
 		m.mode = viewPools
 		return m, nil
@@ -1383,6 +1550,21 @@ func (m Model) maybeFetchSwap() tea.Cmd {
 		return nil
 	}
 	return swapCmd(m.client, d.Name)
+}
+
+// maybeFetchGuestUptime returns a Cmd that queries QGA for the highlighted
+// VM's guest uptime if the cached value is stale or missing. Same async
+// pattern as maybeFetchSwap.
+func (m Model) maybeFetchGuestUptime() tea.Cmd {
+	d, ok := m.currentDomain()
+	if !ok || d.State != lv.StateRunning {
+		return nil
+	}
+	cached, has := m.guestUptime[d.Name]
+	if has && time.Since(cached.FetchedAt) < guestUptimeTTL {
+		return nil
+	}
+	return guestUptimeCmd(m.client, d.Name)
 }
 
 // runConsole suspends the Bubble Tea program, execs `virsh console <name>`,

@@ -108,7 +108,7 @@ func (m Model) shortHelp() string {
 		key("r") + " reboot",
 		key("c") + " console",
 		key("e") + " edit",
-		key("⏎") + " detail",
+		key("Enter") + " detail",
 		key(":") + " cmd",
 		key("/") + " filter",
 		key("?") + " help",

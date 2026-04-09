@@ -129,14 +129,25 @@ func (h *domHistory) uptime() time.Duration {
 	return time.Since(h.firstRunningSince)
 }
 
-// effectiveUptime returns the most accurate uptime we can compute for a domain,
-// preferring the real qemu process start time over the dirt-side estimate.
-// The bool is true when the value comes from the kernel (accurate) and false
-// when it comes from the dirt-side observation window (an under-estimate).
-func effectiveUptime(d lv.Domain, h *domHistory) (time.Duration, bool) {
+// effectiveUptime returns the most accurate uptime we can compute for a domain.
+// Preference order, most accurate first:
+//   1. guest /proc/uptime via qemu-guest-agent — survives in-VM reboots
+//   2. qemu host process start time from /proc/<pid> — local URIs only
+//   3. dirt-side observation window — coarse, under-estimates after a fresh start
+//
+// The bool is true when the value reflects the *guest's* actual boot time
+// (sources 1 and 2). It is false when we're relying on the dirt-side estimate.
+func effectiveUptime(d lv.Domain, h *domHistory, qga lv.GuestUptime) (time.Duration, bool) {
+	// 1. QGA wins: it knows about in-guest reboots.
+	if qga.Available && !qga.BootedAt.IsZero() {
+		return time.Since(qga.BootedAt), true
+	}
+	// 2. qemu process start time — accurate for the qemu process, but does
+	//    not reflect guest-internal reboots that keep qemu running.
 	if !d.BootedAt.IsZero() {
 		return time.Since(d.BootedAt), true
 	}
+	// 3. Fallback: when we first saw it running.
 	if h != nil {
 		return h.uptime(), false
 	}

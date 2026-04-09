@@ -30,7 +30,7 @@ func (m Model) networksView() string {
 		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
 		keyHint.Render("esc") + headerLabel.Render(" back")
 
-	header := listHeaderRow.Render(strings.Join([]string{
+	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", netNameW),
 		padRight("STATE", netStateW),
 		padRight("AUTOSTART", netAutoW),
@@ -92,6 +92,12 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 }
 
 func networkStatusBar(m Model, width int) string {
+	if m.confirming {
+		label := friendlyConfirmAction(m.confirmAction)
+		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s “%s”? ", label, m.confirmName)) +
+			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
+		return statusBar.Width(width).Render(msg)
+	}
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
 	}
