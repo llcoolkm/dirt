@@ -2,7 +2,7 @@
 
 A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, taking inspiration from htop.
 
-![dirt screenshot](docs/screenshot.png)
+![dirt screenshot](images/dirt_ui.png)
 
 `dirt` is a single-binary Go program built on [Bubble Tea](https://github.com/charmbracelet/bubbletea), [lipgloss](https://github.com/charmbracelet/lipgloss), and the [official libvirt-go bindings](https://gitlab.com/libvirt/libvirt-go-module). It connects to your local (or remote) libvirt daemon and gives you a live, vim-lite keyboard-driven view of every domain — with CPU and memory bars, disk and network sparklines, and full lifecycle control from a single keypress.
 
