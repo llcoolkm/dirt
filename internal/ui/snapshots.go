@@ -58,7 +58,7 @@ func (m Model) snapshotsView() string {
 		}
 	}
 
-	pane := listBox.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, append([]string{title, ""}, rows...)...))
+	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, append([]string{title, ""}, rows...)...))
 
 	// Status / input prompt at the bottom.
 	var bottom string

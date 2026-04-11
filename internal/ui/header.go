@@ -12,13 +12,19 @@ import (
 // the VM and host boxes vertically instead of placing them side by side.
 const sideBySideMinWidth = 110
 
+// borderWidth accounts for lipgloss's convention that Style.Width() sets the
+// *content* width (including padding) and adds the border on top. A bordered
+// style with Width(N) renders as N+2 total characters, so callers that need
+// the final rendered width to equal W must pass W-borderWidth.
+const borderWidth = 2
+
 // headerView renders the top pane. When the terminal is wide enough, it
 // places a per-VM box on the left and a host summary on the right; on narrow
 // terminals it falls back to a single full-width box.
 func (m Model) headerView() string {
 	width := m.contentWidth()
 	if m.snap == nil {
-		return headerBox.Width(width).Render("connecting to libvirt…")
+		return headerBox.Width(width - borderWidth).Render("connecting to libvirt…")
 	}
 
 	if width < sideBySideMinWidth {
@@ -70,7 +76,7 @@ func (m Model) emptyVMBox(boxWidth int) string {
 		"",
 		"",
 	)
-	return headerBox.Width(boxWidth).Render(body)
+	return headerBox.Width(boxWidth - borderWidth).Render(body)
 }
 
 // runningVMBox draws CPU / MEM / SWAP / DISK / NET for a running domain.
@@ -119,7 +125,7 @@ func (m Model) runningVMBox(d lv.Domain, boxWidth int) string {
 		netLine,
 		storeLine,
 	)
-	return headerBox.Width(boxWidth).Render(body)
+	return headerBox.Width(boxWidth - borderWidth).Render(body)
 }
 
 // idleVMBox is shown for non-running VMs — config snapshot, no live stats.
@@ -173,7 +179,7 @@ func (m Model) idleVMBox(d lv.Domain, boxWidth int) string {
 		"",
 		storeLine,
 	)
-	return headerBox.Width(boxWidth).Render(body)
+	return headerBox.Width(boxWidth - borderWidth).Render(body)
 }
 
 // renderHostBox draws the host pane: hostname, host CPU/MEM/SWAP, load, doms.
@@ -231,7 +237,7 @@ func (m Model) renderHostBox(boxWidth int) string {
 		loadLine,
 		domsLine,
 	)
-	return headerBox.Width(boxWidth).Render(body)
+	return headerBox.Width(boxWidth - borderWidth).Render(body)
 }
 
 // buildHostCPUInfoLine renders the CPU model + topology subtitle, e.g.:

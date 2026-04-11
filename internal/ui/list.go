@@ -34,7 +34,7 @@ func (m Model) listView() string {
 		empty := lipgloss.NewStyle().Foreground(colDimmed).Italic(true).
 			Render("  no domains" + filterSuffix(m.filter))
 		body := lipgloss.JoinVertical(lipgloss.Left, header, "", empty)
-		return listBox.Width(width).Render(body)
+		return listBox.Width(width - borderWidth).Render(body)
 	}
 
 	// Available row count for the table body.
@@ -65,7 +65,7 @@ func (m Model) listView() string {
 		row := renderDataRow(d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected)
 		rows = append(rows, row)
 	}
-	return listBox.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+	return listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
 
 // renderHeaderRow renders the column-header row, marking the active sort

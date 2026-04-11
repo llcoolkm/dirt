@@ -58,7 +58,7 @@ func (m Model) poolsView() string {
 		}
 	}
 
-	pane := listBox.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left,
+	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left,
 		append([]string{title, ""}, rows...)...))
 
 	bottom := poolsStatusBar(m, width)
@@ -166,7 +166,7 @@ func (m Model) volumesView() string {
 		}
 	}
 
-	pane := listBox.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left,
+	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left,
 		append([]string{title, ""}, rows...)...))
 
 	bottom := statusBar.Width(width).Render(" " +
