@@ -23,6 +23,8 @@ func (m Model) View() string {
 	switch m.mode {
 	case viewHelp:
 		return m.helpView()
+	case viewInfo:
+		return m.infoView()
 	case viewDetail:
 		return m.detailView()
 	case viewSnapshots:
@@ -111,6 +113,7 @@ func (m Model) shortHelp() string {
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",
+		key("Enter") + " info",
 		key("x") + " xml",
 		key("U") + " undefine",
 		key(":") + " cmd",

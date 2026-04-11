@@ -216,10 +216,26 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 
 The hosts list is persisted in `~/.config/dirt/hosts` (plain-text, one `<name> <uri>` per line), seeded on first launch with whichever URI dirt was started against.
 
-### Detail view
+### Info view
+Structured per-VM pane opened with `Enter` / `d` from the main list. Shows identity (UUID, state, OS, IP, autostart, persistent), hardware (vCPUs, CPU mode, live CPU%, memory, balloon breakdown), boot (firmware, boot order, machine type), every disk (target, bus, format, source path, RO/shareable flags, total allocated/capacity), every network interface (MAC, model, source bridge/network, tap device), and graphics channels (SPICE/VNC port, listen).
+
 | Key | Action |
 |-----|--------|
-| `d` / `Enter` | open detail (live XML) |
+| `Enter` / `d` | open info pane |
+| `j` / `k` | scroll one line |
+| `PgUp` / `PgDn` | scroll half page |
+| `g` / `G` | jump to top / bottom |
+| `x` | jump to raw XML for this VM |
+| `esc` / `q` | close info view |
+
+### XML detail view
+Raw live XML from libvirt. Useful for debugging or when you want the
+fields the info pane does not surface. Opened with `x` from the main
+VM list, or from inside the info view.
+
+| Key | Action |
+|-----|--------|
+| `x` | open XML view from the main list |
 | `j` / `k` / arrows | scroll by line |
 | `PgUp` / `PgDn` / `←` / `→` | scroll by page |
 | `g` / `Home` | top of XML |

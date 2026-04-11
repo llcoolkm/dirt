@@ -66,8 +66,8 @@ func (m Model) helpView() string {
 				{"c", "serial console (Ctrl-] to detach) — Linux"},
 				{"v", "graphical console (virt-viewer) — any OS"},
 				{"e", "edit XML in $EDITOR (virsh edit)"},
-				{"x", "open raw XML detail view"},
-				{"Enter / d", "open detail view"},
+				{"Enter / d", "info pane (identity, hardware, disks, NICs…)"},
+				{"x", "raw XML detail view"},
 				{"U", "undefine — delete a stopped VM (asks y)"},
 			},
 		},
@@ -129,9 +129,20 @@ func (m Model) helpView() string {
 			},
 		},
 		{
-			title: "Detail view",
+			title: "Info view",
 			rows: []helpRow{
-				{"d / Enter", "open detail (live XML)"},
+				{"Enter / d", "open info pane"},
+				{"j / k", "scroll one line"},
+				{"PgUp / PgDn", "scroll half page"},
+				{"g / G", "jump to top / bottom"},
+				{"x", "jump to raw XML for this VM"},
+				{"esc / q", "close info view"},
+			},
+		},
+		{
+			title: "XML detail view",
+			rows: []helpRow{
+				{"x", "open raw XML view"},
 				{"j/k / arrows", "scroll by line"},
 				{"PgUp/PgDn / ←/→", "scroll by page"},
 				{"g / Home", "top of XML"},

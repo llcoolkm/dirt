@@ -23,7 +23,8 @@ type viewMode int
 
 const (
 	viewMain      viewMode = iota // VM list (default)
-	viewDetail                    // XML detail of selected VM
+	viewInfo                      // structured per-VM info pane
+	viewDetail                    // raw XML detail of selected VM
 	viewHelp                      // help modal
 	viewSnapshots                 // snapshots of selected VM
 	viewNetworks                  // libvirt networks
@@ -97,6 +98,12 @@ type Model struct {
 	detailSearching bool     // currently typing into the / prompt
 	detailMatches   []int    // line indices matching detailSearch
 	detailMatchIdx  int      // index into detailMatches for current cursor
+
+	// Info view state (structured per-VM panel, Enter/d target).
+	infoFor    string
+	info       lv.DomainInfo
+	infoErr    error
+	infoScroll int
 
 	// Snapshot view state.
 	snapshotsFor  string              // domain name we're showing snapshots for
@@ -584,6 +591,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailMatchIdx = 0
 		return m, nil
 
+	case infoLoadedMsg:
+		// Discard results from a previously-opened info view.
+		if msg.name != m.infoFor {
+			return m, nil
+		}
+		m.info = msg.info
+		m.infoErr = msg.err
+		return m, nil
+
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 
@@ -606,6 +622,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.mode {
+	case viewInfo:
+		return m.handleInfoKey(msg)
 	case viewDetail:
 		return m.handleDetailKey(msg)
 	case viewSnapshots:
@@ -740,12 +758,15 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter", "d":
+		// Structured info pane (replaces the old raw-XML detail).
+		// Raw XML is still one keypress away via the "x" binding.
 		if d, ok := m.currentDomain(); ok {
-			m.mode = viewDetail
-			m.detailFor = d.Name
-			m.detailXML = "(loading…)"
-			m.detailLines = []string{m.detailXML}
-			return m, loadDetailCmd(m.client, d.Name)
+			m.mode = viewInfo
+			m.infoFor = d.Name
+			m.info = lv.DomainInfo{Name: d.Name}
+			m.infoErr = nil
+			m.infoScroll = 0
+			return m, loadInfoCmd(m.client, d.Name)
 		}
 		return m, nil
 
