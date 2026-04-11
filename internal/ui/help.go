@@ -135,6 +135,7 @@ func (m Model) helpView() string {
 				{"j / k", "scroll one line"},
 				{"PgUp / PgDn", "scroll half page"},
 				{"g / G", "jump to top / bottom"},
+				{"e", "edit XML in $EDITOR (virsh edit)"},
 				{"x", "jump to raw XML for this VM"},
 				{"esc / q", "close info view"},
 			},

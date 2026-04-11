@@ -165,8 +165,9 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 ### Command palette & view switching
 | Key | Action |
 |-----|--------|
-| `:` | open command palette |
+| `:` | open command palette (the available commands are listed next to the prompt and narrow as you type) |
 | `Tab` | cycle forward through top-level views: main → hosts → networks → pools → snapshots → main |
+| `Shift-Tab` | cycle the same ring backwards |
 | `:snap` | snapshots of selected VM |
 | `:net` | libvirt networks |
 | `:pool` | storage pools (and drill-down into volumes) |
@@ -225,6 +226,7 @@ Structured per-VM pane opened with `Enter` / `d` from the main list. Shows ident
 | `j` / `k` | scroll one line |
 | `PgUp` / `PgDn` | scroll half page |
 | `g` / `G` | jump to top / bottom |
+| `e` | edit XML in `$EDITOR` (`virsh edit`) — the pane refreshes when you return |
 | `x` | jump to raw XML for this VM |
 | `esc` / `q` | close info view |
 

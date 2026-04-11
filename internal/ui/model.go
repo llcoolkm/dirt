@@ -570,6 +570,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.volumesFor != "" {
 				cmds = append(cmds, loadVolumesCmd(m.client, m.volumesFor))
 			}
+		case viewInfo:
+			if m.infoFor != "" {
+				cmds = append(cmds, loadInfoCmd(m.client, m.infoFor))
+			}
 		}
 		return m, tea.Batch(cmds...)
 
@@ -616,9 +620,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Tab cycles through the top-level views, but not while a text
 	// input is active (filter, command palette, snapshot name, host
-	// input, detail search).
-	if msg.String() == "tab" && !m.isTextInputting() {
-		return m.cycleMode()
+	// input, detail search). Shift-Tab walks the same ring backwards.
+	if !m.isTextInputting() {
+		switch msg.String() {
+		case "tab":
+			return m.cycleMode()
+		case "shift+tab":
+			return m.cycleModeReverse()
+		}
 	}
 
 	switch m.mode {
@@ -1758,7 +1767,40 @@ func (m Model) cycleMode() (tea.Model, tea.Cmd) {
 	default:
 		next = viewMain
 	}
+	return m.enterView(next)
+}
 
+// cycleModeReverse walks the same ring as cycleMode but backwards:
+// main → snapshots (if a VM is selected) → pools → networks → hosts →
+// main. Invoked by Shift-Tab.
+func (m Model) cycleModeReverse() (tea.Model, tea.Cmd) {
+	next := viewMain
+	switch m.mode {
+	case viewMain:
+		if _, ok := m.currentDomain(); ok {
+			next = viewSnapshots
+		} else {
+			next = viewPools
+		}
+	case viewSnapshots:
+		next = viewPools
+	case viewPools:
+		next = viewNetworks
+	case viewNetworks:
+		next = viewHosts
+	case viewHosts:
+		next = viewMain
+	default:
+		next = viewMain
+	}
+	return m.enterView(next)
+}
+
+// enterView is the shared "switch to this top-level view" helper used
+// by both cycleMode and cycleModeReverse. It handles the per-view
+// bookkeeping (selection reset, initial load command) so the cycle
+// functions only need to decide which view comes next.
+func (m Model) enterView(next viewMode) (tea.Model, tea.Cmd) {
 	switch next {
 	case viewMain:
 		m.mode = viewMain

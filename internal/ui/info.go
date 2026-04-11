@@ -76,7 +76,7 @@ func (m Model) infoView() string {
 
 	bottom := statusBar.Width(width).Render(" " +
 		key("j/k") + " scroll  " + key("g/G") + " top/bottom  " +
-		key("x") + " raw xml  " + key("esc") + " back")
+		key("e") + " edit  " + key("x") + " raw xml  " + key("esc") + " back")
 
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
 }
@@ -318,6 +318,16 @@ func (m Model) handleInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailXML = "(loading…)"
 		m.detailLines = []string{m.detailXML}
 		return m, loadDetailCmd(m.client, name)
+	case "e":
+		// Edit the underlying XML in $EDITOR via `virsh edit`. Tea
+		// suspends while the editor runs and resumes on exit; the
+		// actionResultMsg handler reloads the info pane afterward,
+		// so any changes are visible the moment we return.
+		name := m.infoFor
+		if name == "" {
+			return m, nil
+		}
+		return m, m.runEdit(name)
 	}
 	return m, nil
 }

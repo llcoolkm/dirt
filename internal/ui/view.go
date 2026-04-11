@@ -80,11 +80,12 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt)
 	}
 
-	// Command palette.
+	// Command palette — show the typed buffer plus a filtered list
+	// of available commands so the master need not memorise them.
 	if m.commanding {
-		prompt := keyHint.Render(":") + m.command + lipgloss.NewStyle().Foreground(colAccent).Render("█") +
-			headerLabel.Render("    (try snap, vm, help, q)")
-		return statusBar.Width(width).Render(" " + prompt)
+		prompt := keyHint.Render(":") + m.command + lipgloss.NewStyle().Foreground(colAccent).Render("█")
+		hint := commandPaletteHint(m.command)
+		return statusBar.Width(width).Render(" " + prompt + "    " + hint)
 	}
 
 	// Confirm dialog takes precedence after filter.
@@ -100,6 +101,62 @@ func (m Model) statusView() string {
 	}
 
 	return statusBar.Width(width).Render(" " + m.shortHelp())
+}
+
+// paletteCommand is one entry in the `:` command hint — a canonical
+// name and the short description shown after it.
+type paletteCommand struct {
+	name string
+	desc string
+}
+
+// paletteCommands lists every `:`-command dirt accepts, in the order
+// the hint should display them. Only canonical names are listed; the
+// aliases (vms, snapshot, quit, …) are handled by execCommand itself.
+var paletteCommands = []paletteCommand{
+	{"vm", "VM list"},
+	{"snap", "snapshots"},
+	{"net", "networks"},
+	{"pool", "pools"},
+	{"host", "hosts"},
+	{"help", "help"},
+	{"q", "quit"},
+}
+
+// commandPaletteHint renders the dynamic menu shown next to the `:`
+// prompt. It lists every command whose canonical name starts with the
+// already-typed prefix, so as the master types the list narrows. If
+// nothing matches, the full menu is shown in a dimmer style so the
+// master can see what is actually on offer.
+func commandPaletteHint(prefix string) string {
+	matches := paletteCommands[:0:0]
+	for _, c := range paletteCommands {
+		if strings.HasPrefix(c.name, prefix) {
+			matches = append(matches, c)
+		}
+	}
+	if len(matches) == 0 {
+		// No prefix match — show everything so the master has a
+		// fighting chance of discovering the right name.
+		parts := make([]string, 0, len(paletteCommands))
+		for _, c := range paletteCommands {
+			parts = append(parts, headerLabel.Render(":"+c.name))
+		}
+		return errorStyle.Render("(no match) ") + strings.Join(parts, headerLabel.Render("  "))
+	}
+	parts := make([]string, 0, len(matches))
+	for _, c := range matches {
+		// Render the typed prefix with keyHint so the matched head
+		// stands out from the grey tail.
+		var label string
+		if prefix != "" {
+			label = keyHint.Render(":"+prefix) + headerLabel.Render(c.name[len(prefix):])
+		} else {
+			label = keyHint.Render(":") + headerLabel.Render(c.name)
+		}
+		parts = append(parts, label+" "+headerLabel.Render(c.desc))
+	}
+	return strings.Join(parts, headerLabel.Render("  ·  "))
 }
 
 // shortHelp is the always-on key hint line.
