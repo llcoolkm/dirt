@@ -8,7 +8,7 @@ A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, taki
 
 ## Why it exists
 
-I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with Claude Code on my phone while having breakfast. Loads more features planned for handling network, storage, snapshots, etc.
+I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with Claude Code on my phone while having breakfast.
 
 ## Features
 
