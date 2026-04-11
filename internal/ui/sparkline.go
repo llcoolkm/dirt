@@ -50,8 +50,8 @@ func sparkline(samples []float64) string {
 	return b.String()
 }
 
-// bar renders a horizontal htop-style bar of the given width.
-// Filled cells are "|"; empty cells are spaces. pct is clamped to [0, 100].
+// bar renders a horizontal bar of the given width. Filled cells are "|";
+// empty cells are spaces. pct is clamped to [0, 100].
 func bar(pct float64, width int) string {
 	if width <= 0 {
 		return ""
@@ -91,9 +91,9 @@ func storageColorBar(pct float64, width int) string {
 	return style.Render(b)
 }
 
-// multiBar renders an htop-style multi-segment bar using "|" characters in
-// the segment colours. Empty cells become spaces — htop's signature look.
-// Total of segment pcts should be ≤ 100; anything over is clamped at the edge.
+// multiBar renders a multi-segment bar using "|" characters in the
+// segment colours. Empty cells become spaces. Total of segment pcts
+// should be ≤ 100; anything over is clamped at the edge.
 func multiBar(segments []barSegment, width int) string {
 	if width <= 0 {
 		return ""

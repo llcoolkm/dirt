@@ -1,4 +1,4 @@
-// dirt — a k9s-style TUI for libvirt.
+// dirt — a terminal UI for libvirt.
 package main
 
 import (
@@ -39,7 +39,7 @@ func main() {
 		versionFlag = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "dirt — k9s-style TUI for libvirt / QEMU / KVM\n\n")
+		fmt.Fprintf(os.Stderr, "dirt — a terminal UI for libvirt / QEMU / KVM\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  dirt [flags]\n\nFlags:\n")
 		flag.PrintDefaults()
 	}

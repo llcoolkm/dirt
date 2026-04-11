@@ -69,8 +69,8 @@ func (s HostStats) CPUActive() uint64 {
 	return s.CPUTotal() - s.CPUIdle - s.CPUIOWait
 }
 
-// MemUsedKB returns the htop definition of "used" — total minus the
-// reclaimable parts (free, buffers, cached, sreclaimable).
+// MemUsedKB returns memory actually in use by applications — total minus
+// the reclaimable parts (free, buffers, cached, sreclaimable).
 func (s HostStats) MemUsedKB() uint64 {
 	if s.MemTotalKB == 0 {
 		return 0
@@ -82,7 +82,8 @@ func (s HostStats) MemUsedKB() uint64 {
 	return used
 }
 
-// MemCacheKB returns buffers + cache + sreclaimable (the yellow segment in htop).
+// MemCacheKB returns buffers + cache + sreclaimable — the reclaimable
+// portion of memory that shows as the yellow segment in the memory bar.
 func (s HostStats) MemCacheKB() uint64 {
 	return s.BuffersKB + s.CachedKB + s.SReclaimableKB
 }

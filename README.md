@@ -1,10 +1,10 @@
 # dirt — a libvirt TUI
 
-A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, taking inspiration from htop.
+A terminal UI for managing libvirt / QEMU / KVM virtual machines.
 
 ![dirt screenshot](images/dirt_ui.png)
 
-`dirt` is a single-binary Go program built on [Bubble Tea](https://github.com/charmbracelet/bubbletea), [lipgloss](https://github.com/charmbracelet/lipgloss), and the [official libvirt-go bindings](https://gitlab.com/libvirt/libvirt-go-module). It connects to your local (or remote) libvirt daemon and gives you a live, vim-lite keyboard-driven view of every domain — with CPU and memory bars, disk and network sparklines, and full lifecycle control from a single keypress.
+`dirt` is a single-binary Go program built on [Bubble Tea](https://github.com/charmbracelet/bubbletea), [lipgloss](https://github.com/charmbracelet/lipgloss), and the [official libvirt-go bindings](https://gitlab.com/libvirt/libvirt-go-module). It connects to your local (or remote) libvirt daemon and gives you a live, keyboard-driven view of every domain — with CPU and memory bars, disk and network sparklines, and full lifecycle control from a single keypress.
 
 ## Why it exists
 
@@ -14,8 +14,8 @@ I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with
 
 - **Live VM table** — name, state, IP, OS, vCPU, memory, CPU%, uptime
 - **Sortable columns** — `1`–`5` to sort by name / state / vCPU / memory / CPU%, press again to reverse
-- **htop-style host header** (when no VM is selected): live host CPU%, multi-segment memory bar, swap bar, load average, vCPU + memory overcommit ratios
-- **htop-style per-VM header** for the highlighted VM:
+- **Host header** (when no VM is selected): live host CPU%, multi-segment memory bar, swap bar, load average, vCPU + memory overcommit ratios
+- **Per-VM header** for the highlighted VM:
   - **CPU bar** with percent (green / yellow / red by load)
   - **Memory bar**, multi-segment: green for *used*, yellow for *cache*, dim for *free*, plus a major-fault sparkline
   - **Swap bar** when `qemu-guest-agent` is installed in the guest; activity sparklines as a fallback
@@ -158,7 +158,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |
 | `x` | undefine — delete a stopped VM (asks `y` to confirm) |
 
-### Command palette & view switching (k9s style)
+### Command palette & view switching
 | Key | Action |
 |-----|--------|
 | `:` | open command palette |
@@ -279,7 +279,7 @@ dirt/
 │   └── ui/
 │       ├── model.go        Bubble Tea Model + Update + key routing
 │       ├── view.go         root render + status bar + detail view
-│       ├── header.go       htop-style stats pane
+│       ├── header.go       host + VM stats pane
 │       ├── list.go         VM table with selection & sort
 │       ├── help.go         modal help screen
 │       ├── history.go      rolling sparkline buffer + rate computation

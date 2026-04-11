@@ -15,7 +15,7 @@ var (
 	colSelectBG = lipgloss.Color("237") // dark gray
 	colSelectFG = lipgloss.Color("15")  // bright white
 	colMemUsed  = lipgloss.Color("10")  // green — actively used
-	colMemCache = lipgloss.Color("11")  // yellow — page cache / buffers (htop style)
+	colMemCache = lipgloss.Color("11")  // yellow — page cache / buffers
 	colSwap     = lipgloss.Color("13")  // magenta — swap activity
 )
 

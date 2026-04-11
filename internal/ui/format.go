@@ -37,7 +37,7 @@ func formatRate(bytesPerSec float64) string {
 	return formatBytes(bytesPerSec) + "/s"
 }
 
-// formatDuration produces a short, htop-style duration label:
+// formatDuration produces a short duration label:
 //   < 1m   →  "Ns"
 //   < 1h   →  "MmSs"
 //   < 1d   →  "HhMm"

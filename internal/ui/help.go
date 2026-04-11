@@ -160,7 +160,7 @@ func (m Model) helpView() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, col1Box, col2Box)
 
-	footer := headerLabel.Render("dirt — libvirt TUI in the htop tradition")
+	footer := headerLabel.Render("dirt — a terminal UI for libvirt")
 
 	pane := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
