@@ -441,7 +441,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.domain != m.snapshotsFor {
 			return m, nil
 		}
-		m.snapshots = msg.list
+		// Sort into parent-first DFS order so the selection index
+		// matches what the user sees in the tree rendering. The
+		// prefix strings are recomputed at render time from the
+		// already-sorted slice.
+		sorted, _ := sortSnapshotsAsTree(msg.list)
+		m.snapshots = sorted
 		m.snapshotsErr = msg.err
 		if m.snapshotsSel >= len(m.snapshots) {
 			m.snapshotsSel = len(m.snapshots) - 1
