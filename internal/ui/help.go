@@ -28,6 +28,8 @@ func (m Model) helpView() string {
 				{"G / End", "jump to bottom"},
 				{"Ctrl-d / PgDn", "page down"},
 				{"Ctrl-u / PgUp", "page up"},
+				{"left click", "select a row"},
+				{"scroll wheel", "move selection up/down"},
 			},
 		},
 		{

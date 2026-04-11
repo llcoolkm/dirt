@@ -131,6 +131,8 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `G` / `End` | jump to bottom |
 | `Ctrl-d` / `PgDn` | page down |
 | `Ctrl-u` / `PgUp` | page up |
+| *left click* | select a row in any list |
+| *scroll wheel* | move the selection up / down |
 
 ### Filter & Sort
 | Key | Action |
