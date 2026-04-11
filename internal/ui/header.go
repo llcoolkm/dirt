@@ -196,8 +196,12 @@ func (m Model) renderHostBox(boxWidth int) string {
 
 	// Title: hostname, then logical CPU count *before* uptime to match the
 	// VM box's "vCPU before uptime" order. OS pretty name comes last, also
-	// matching the VM box.
+	// matching the VM box. A subtle "(remote)" tag signals when the sample
+	// came from libvirt's node APIs instead of /proc.
 	title := headerTitle.Render("host: " + m.snap.Hostname)
+	if m.hostStats.Remote {
+		title += headerLabel.Render("  (remote)")
+	}
 	if m.host.CPUs > 0 {
 		title += headerLabel.Render("  ") + headerValue.Render(fmt.Sprintf("%d cores", m.host.CPUs))
 	}
@@ -424,7 +428,7 @@ func buildHostCPULine(s lv.HostStats, pct float64, inner int) string {
 // the inline used/cache/free breakdown.
 func buildHostMemLine(s lv.HostStats, inner int) string {
 	if s.MemTotalKB == 0 {
-		return headerLabel.Render("MEM  ") + headerValue.Render("(no /proc/meminfo)")
+		return headerLabel.Render("MEM  ") + headerValue.Render("(no stats)")
 	}
 	used := s.MemUsedKB()
 	cache := s.MemCacheKB()
@@ -447,7 +451,12 @@ func buildHostMemLine(s lv.HostStats, inner int) string {
 }
 
 // buildHostSwapLine renders the host swap bar from /proc/meminfo data.
+// Libvirt's node APIs do not expose swap, so for remote connections we
+// show a placeholder instead of a bar.
 func buildHostSwapLine(s lv.HostStats, inner int) string {
+	if s.Remote {
+		return headerLabel.Render("SWAP ") + headerValue.Render("—")
+	}
 	if s.SwapTotalKB == 0 {
 		return headerLabel.Render("SWAP ") + headerValue.Render("disabled")
 	}
@@ -468,8 +477,13 @@ func buildHostSwapLine(s lv.HostStats, inner int) string {
 		headerValue.Render(detail)
 }
 
-// buildHostLoadLine is a one-line load average display.
+// buildHostLoadLine is a one-line load average display. Load average is
+// not exposed by libvirt's node APIs, so remote connections show a
+// placeholder instead.
 func buildHostLoadLine(s lv.HostStats) string {
+	if s.Remote {
+		return headerLabel.Render("LOAD ") + headerValue.Render("—")
+	}
 	return headerLabel.Render("LOAD ") +
 		headerValue.Render(fmt.Sprintf("%.2f  %.2f  %.2f", s.Load1, s.Load5, s.Load15)) +
 		headerLabel.Render("    (1m  5m  15m)")
