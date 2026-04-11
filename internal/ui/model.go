@@ -150,6 +150,11 @@ type Model struct {
 	// Column sort. sortColumn indexes into the list's sortable columns.
 	sortColumn sortColumn
 	sortDesc   bool
+
+	// activeColumns is the VM-list column slice honouring the user's
+	// config.yaml column-visibility preferences. Always a subset of
+	// vmColumns; required columns (NAME, STATE, IP) are always present.
+	activeColumns []column
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -203,7 +208,19 @@ func New(c *lv.Client) Model {
 		guestUptime:     make(map[string]lv.GuestUptime),
 		hostsProbe:      make(map[string]hostProbeStatus),
 		sortColumn:      sortByState, // running first by default
+		activeColumns:   vmColumns,
 	}
+}
+
+// WithConfig applies user-level config.yaml preferences to the model:
+// default sort column + direction and column visibility. Refresh
+// interval is applied separately via WithRefreshInterval so the CLI
+// --refresh flag can override the config without a second lookup.
+func (m Model) WithConfig(cfg config.Config) Model {
+	m.sortColumn = sortColumnFromID(cfg.List.SortBy)
+	m.sortDesc = cfg.List.SortReverse
+	m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
+	return m
 }
 
 // (sort enum values now start at 1, so the zero value of sortColumn is invalid;

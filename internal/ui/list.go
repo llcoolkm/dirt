@@ -23,12 +23,15 @@ const (
 	colIOWriteW = 5
 )
 
-// column describes a VM list column. The render function produces the
-// cell value for a given domain; left align and required control layout
-// and whether the column can be dropped on narrow terminals. The master
-// list (vmColumns below) is ordered left→right by priority, so columns
-// are dropped from the right until the remaining row fits the width.
+// column describes a VM list column. The id is a stable lowercase
+// identifier used in config.yaml and for lookups; the label is the
+// display string shown in the header row. The render function produces
+// the cell value for a given domain; leftAlign and required control
+// layout and whether the column can be dropped on narrow terminals.
+// The master list (vmColumns below) is ordered left→right by priority,
+// so columns are dropped from the right until the row fits the width.
 type column struct {
+	id        string
 	label     string
 	sort      sortColumn // 0 for non-sortable
 	width     int
@@ -41,37 +44,37 @@ type column struct {
 // priority order. Required columns (NAME, STATE, IP) are always shown;
 // everything else is droppable on narrow terminals.
 var vmColumns = []column{
-	{label: "NAME", sort: sortByName, width: colNameW, leftAlign: true, required: true,
+	{id: "name", label: "NAME", sort: sortByName, width: colNameW, leftAlign: true, required: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			return truncate(d.Name, colNameW)
 		}},
-	{label: "STATE", sort: sortByState, width: colStateW, leftAlign: true, required: true,
+	{id: "state", label: "STATE", sort: sortByState, width: colStateW, leftAlign: true, required: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			return truncate(d.State.String(), colStateW)
 		}},
-	{label: "IP", sort: sortByIP, width: colIPW, leftAlign: true, required: true,
+	{id: "ip", label: "IP", sort: sortByIP, width: colIPW, leftAlign: true, required: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.IP == "" {
 				return "—"
 			}
 			return truncate(d.IP, colIPW)
 		}},
-	{label: "OS", sort: sortByOS, width: colOSW, leftAlign: true,
+	{id: "os", label: "OS", sort: sortByOS, width: colOSW, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.OS == "" {
 				return "—"
 			}
 			return truncate(d.OS, colOSW)
 		}},
-	{label: "vCPU", sort: sortByVCPU, width: colVCPUW,
+	{id: "vcpu", label: "vCPU", sort: sortByVCPU, width: colVCPUW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			return fmt.Sprintf("%d", d.NrVCPU)
 		}},
-	{label: "MEM", sort: sortByMem, width: colMemW,
+	{id: "mem", label: "MEM", sort: sortByMem, width: colMemW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			return formatKB(d.MaxMemKB)
 		}},
-	{label: "MEM%", sort: sortByMemPct, width: colMemPctW,
+	{id: "mem_pct", label: "MEM%", sort: sortByMemPct, width: colMemPctW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning {
 				return "—"
@@ -81,14 +84,14 @@ var vmColumns = []column{
 			}
 			return "—"
 		}},
-	{label: "CPU%", sort: sortByCPU, width: colCPUW,
+	{id: "cpu", label: "CPU%", sort: sortByCPU, width: colCPUW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%5.1f%%", h.currentCPU())
 		}},
-	{label: "UPTIME", sort: sortByUptime, width: colUptimeW,
+	{id: "uptime", label: "UPTIME", sort: sortByUptime, width: colUptimeW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning {
 				return "—"
@@ -98,20 +101,52 @@ var vmColumns = []column{
 			}
 			return "—"
 		}},
-	{label: "IO-R", width: colIOReadW,
+	{id: "io_r", label: "IO-R", width: colIOReadW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%.0f", currentRate(h.blockRdOps))
 		}},
-	{label: "IO-W", width: colIOWriteW,
+	{id: "io_w", label: "IO-W", width: colIOWriteW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
 		}},
+}
+
+// filterActiveColumns returns the subset of vmColumns the config
+// wants shown. Required columns are always retained. Optional
+// columns are included when visibility[id] is true OR absent — a
+// missing entry is treated as visible, so a sparse config does not
+// accidentally hide everything.
+func filterActiveColumns(all []column, visibility map[string]bool) []column {
+	out := make([]column, 0, len(all))
+	for _, c := range all {
+		if c.required {
+			out = append(out, c)
+			continue
+		}
+		if visible, present := visibility[c.id]; present && !visible {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// sortColumnFromID returns the sortColumn enum value for a config
+// "sort_by" string. Unknown values fall through to sortByState so an
+// invalid config still produces a sensible default.
+func sortColumnFromID(id string) sortColumn {
+	for _, c := range vmColumns {
+		if c.id == id && c.sort != 0 {
+			return c.sort
+		}
+	}
+	return sortByState
 }
 
 // columnsWidth returns the rendered width of a consecutive slice of
@@ -128,20 +163,22 @@ func columnsWidth(cols []column) int {
 	return w
 }
 
-// fitColumns returns how many of vmColumns fit in avail characters of
+// fitColumns returns how many of cols fit in avail characters of
 // inner row width. Required columns are never dropped even if the row
 // would overflow — in that case the caller accepts a bit of wrapping
-// rather than hiding critical fields.
-func fitColumns(avail int) int {
+// rather than hiding critical fields. cols is the caller's active
+// column slice, so the fit respects the user's column-visibility
+// preferences from config.yaml.
+func fitColumns(cols []column, avail int) int {
 	required := 0
-	for _, c := range vmColumns {
+	for _, c := range cols {
 		if !c.required {
 			break
 		}
 		required++
 	}
-	for n := len(vmColumns); n > required; n-- {
-		if columnsWidth(vmColumns[:n]) <= avail {
+	for n := len(cols); n > required; n-- {
+		if columnsWidth(cols[:n]) <= avail {
 			return n
 		}
 	}
@@ -153,15 +190,20 @@ func (m Model) listView() string {
 	width := m.contentWidth()
 	doms := m.visibleDomains()
 
+	cols := m.activeColumns
+	if len(cols) == 0 {
+		cols = vmColumns
+	}
+
 	// Compute how many columns fit. The inner area is the box width
 	// minus the rounded border (2) minus the horizontal padding (2).
 	inner := width - borderWidth - 2
 	if inner < 1 {
 		inner = 1
 	}
-	nCols := fitColumns(inner)
+	nCols := fitColumns(cols, inner)
 
-	header := renderHeaderRow(m.sortColumn, m.sortDesc, nCols)
+	header := renderHeaderRow(cols, m.sortColumn, m.sortDesc, nCols)
 
 	if len(doms) == 0 {
 		empty := lipgloss.NewStyle().Foreground(colDimmed).Italic(true).
@@ -195,21 +237,21 @@ func (m Model) listView() string {
 	rows = append(rows, header)
 	for i := m.offset; i < end; i++ {
 		d := doms[i]
-		row := renderDataRow(d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, nCols)
+		row := renderDataRow(cols, d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, nCols)
 		rows = append(rows, row)
 	}
 	return listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
 
-// renderHeaderRow renders the column-header row, marking the active sort
-// column with an arrow (▲ asc, ▼ desc). Only the first nCols of
-// vmColumns are shown; dropped columns become invisible.
-func renderHeaderRow(active sortColumn, desc bool, nCols int) string {
-	if nCols > len(vmColumns) {
-		nCols = len(vmColumns)
+// renderHeaderRow renders the column-header row, marking the active
+// sort column with an arrow (▲ asc, ▼ desc). Only the first nCols of
+// cols are shown; dropped columns become invisible.
+func renderHeaderRow(cols []column, active sortColumn, desc bool, nCols int) string {
+	if nCols > len(cols) {
+		nCols = len(cols)
 	}
 	cells := make([]string, 0, nCols)
-	for _, c := range vmColumns[:nCols] {
+	for _, c := range cols[:nCols] {
 		s := c.label
 		if c.sort != 0 && active == c.sort {
 			arrow := "▲"
@@ -230,15 +272,15 @@ func renderHeaderRow(active sortColumn, desc bool, nCols int) string {
 }
 
 // renderDataRow renders one VM row, optionally highlighted. Only the
-// first nCols of vmColumns are shown. The STATE column uses a state-
+// first nCols of cols are shown. The STATE column uses a state-
 // specific colour when not selected; for selected rows the colour is
 // stripped so the rowSelected style can apply its own fg/bg.
-func renderDataRow(d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool, nCols int) string {
-	if nCols > len(vmColumns) {
-		nCols = len(vmColumns)
+func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool, nCols int) string {
+	if nCols > len(cols) {
+		nCols = len(cols)
 	}
 	cells := make([]string, 0, nCols)
-	for _, c := range vmColumns[:nCols] {
+	for _, c := range cols[:nCols] {
 		raw := c.render(d, h, qga)
 		var padded string
 		if c.leftAlign {

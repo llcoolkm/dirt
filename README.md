@@ -234,6 +234,52 @@ The hosts list is persisted in `~/.config/dirt/hosts` (plain-text, one `<name> <
 | `?` | toggle help modal |
 | `q` / `Ctrl-c` | quit |
 
+## Configuration
+
+dirt seeds two files under `~/.config/dirt/` on first launch:
+
+### `config.yaml`
+
+Persistent user-level preferences. All fields optional; missing ones fall back to dirt's built-in defaults.
+
+```yaml
+# Snapshot tick rate. Floor is 200ms.
+refresh: 1s
+
+# Reserved for future theming.
+theme: default
+
+list:
+  # Initial sort column. One of: name, state, ip, os, vcpu, mem,
+  # mem_pct, cpu, uptime.
+  sort_by: state
+
+  # Reverse the natural sort direction. "Natural" is A→Z for text
+  # columns and largest-first for numeric columns (so a fresh press
+  # of `8` puts the hottest VMs on top, and sort_reverse: true puts
+  # them at the bottom).
+  sort_reverse: false
+
+  # Toggle optional columns. NAME, STATE, IP are required and
+  # cannot be hidden. Any column absent from this map stays visible,
+  # so you only need to list the ones you want to hide.
+  columns:
+    os:      true
+    vcpu:    true
+    mem:     true
+    mem_pct: true
+    cpu:     true
+    uptime:  true
+    io_r:    true
+    io_w:    true
+```
+
+CLI flags (e.g. `--refresh`) override the config file for the current session.
+
+### `hosts`
+
+Plain-text list of libvirt endpoints — see [Hosts view](#hosts-view) above.
+
 ## How memory and swap stats work
 
 `dirt` reads several sources to populate the header pane:

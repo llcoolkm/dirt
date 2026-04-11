@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/llcoolkm/dirt/internal/config"
 	"github.com/llcoolkm/dirt/internal/lv"
 	"github.com/llcoolkm/dirt/internal/ui"
 )
@@ -35,7 +36,7 @@ func resolveVersion() string {
 func main() {
 	var (
 		uriFlag     = flag.String("uri", "", "libvirt URI (default: $LIBVIRT_DEFAULT_URI or qemu:///system)")
-		refreshFlag = flag.Duration("refresh", 1*time.Second, "refresh interval (e.g. 1s, 500ms, 5s)")
+		refreshFlag = flag.Duration("refresh", 0, "refresh interval (e.g. 1s, 500ms, 5s) — overrides the config file")
 		versionFlag = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = func() {
@@ -50,6 +51,27 @@ func main() {
 		return
 	}
 
+	// Load (or seed) the persistent user config. A load error is
+	// non-fatal — we fall through to defaults and warn the user so the
+	// TUI still starts on a broken config file.
+	cfg, err := config.SeedConfigIfMissing()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dirt: warning — could not read %s: %v\n", config.ConfigPath(), err)
+	}
+
+	// CLI --refresh overrides the config file. The zero default lets
+	// us distinguish "flag unset" from an intentional 0 (which would
+	// be clamped to the 200ms floor anyway).
+	refresh := cfg.Refresh
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "refresh" {
+			refresh = *refreshFlag
+		}
+	})
+	if refresh <= 0 {
+		refresh = 1 * time.Second
+	}
+
 	uri := *uriFlag
 	if uri == "" {
 		uri = os.Getenv("LIBVIRT_DEFAULT_URI")
@@ -62,7 +84,7 @@ func main() {
 	}
 	defer client.Close()
 
-	model := ui.New(client).WithRefreshInterval(*refreshFlag)
+	model := ui.New(client).WithConfig(cfg).WithRefreshInterval(refresh)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "dirt: %v\n", err)
