@@ -7,9 +7,11 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/llcoolkm/dirt/internal/config"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
 
@@ -27,6 +29,7 @@ const (
 	viewNetworks                  // libvirt networks
 	viewPools                     // storage pools
 	viewVolumes                   // volumes inside selected pool
+	viewHosts                     // list of known libvirt endpoints
 )
 
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
@@ -119,6 +122,18 @@ type Model struct {
 	volumesSel int
 	volumesErr error
 
+	// Hosts view state — the multi-host list and async probe results.
+	hosts      []config.Host
+	hostsSel   int
+	hostsErr   error
+	hostsProbe map[string]hostProbeStatus
+
+	// Hosts view: two-step text input for the "a" (add host) flow.
+	// Stage 0 = idle, 1 = typing the nickname, 2 = typing the URI.
+	hostInputStage int
+	hostInputName  string
+	hostInputURI   string
+
 	// Command palette state (entered via `:`).
 	commanding bool   // currently typing a `:` command
 	command    string // text being typed
@@ -186,6 +201,7 @@ func New(c *lv.Client) Model {
 		history:         make(map[string]*domHistory),
 		swap:            make(map[string]lv.SwapInfo),
 		guestUptime:     make(map[string]lv.GuestUptime),
+		hostsProbe:      make(map[string]hostProbeStatus),
 		sortColumn:      sortByState, // running first by default
 	}
 }
@@ -354,6 +370,9 @@ func (m Model) Init() tea.Cmd {
 		loadCmd(m.client),
 		loadHostCmd(m.client),
 		loadHostStatsCmd(m.client),
+		// Seed (if missing) and load the hosts file so :host add does not
+		// overwrite an existing one and the list is ready on first open.
+		loadHostsListCmd(m.client.URI()),
 		tickCmd(m.refreshInterval),
 	)
 }
@@ -469,6 +488,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case hostsLoadedMsg:
+		m.hosts = msg.list
+		m.hostsErr = msg.err
+		if m.hostsSel >= len(m.hosts) {
+			m.hostsSel = len(m.hosts) - 1
+		}
+		if m.hostsSel < 0 {
+			m.hostsSel = 0
+		}
+		// Probe immediately so the status column fills in.
+		if msg.err == nil && len(m.hosts) > 0 {
+			return m, probeAllHostsCmd(m.hosts)
+		}
+		return m, nil
+
+	case hostProbedMsg:
+		if m.hostsProbe == nil {
+			m.hostsProbe = make(map[string]hostProbeStatus)
+		}
+		m.hostsProbe[msg.name] = msg.status
+		return m, nil
+
+	case connectedMsg:
+		var cmd tea.Cmd
+		m, cmd = m.applyConnected(msg)
+		return m, cmd
+
+	case connectErrMsg:
+		m.flashf("✗ connect %s: %v", msg.nick, msg.err)
+		return m, nil
+
 	case actionResultMsg:
 		if msg.err != nil {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
@@ -523,6 +573,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // view has its own confirm dialog for revert/delete). The global confirming /
 // filtering / commanding states only apply to the main VM list view.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Tab cycles through the top-level views, but not while a text
+	// input is active (filter, command palette, snapshot name, host
+	// input, detail search).
+	if msg.String() == "tab" && !m.isTextInputting() {
+		return m.cycleMode()
+	}
+
 	switch m.mode {
 	case viewDetail:
 		return m.handleDetailKey(msg)
@@ -534,6 +591,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePoolsKey(msg)
 	case viewVolumes:
 		return m.handleVolumesKey(msg)
+	case viewHosts:
+		return m.handleHostsKey(msg)
 	}
 	switch {
 	case m.confirming:
@@ -714,6 +773,14 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			return m, m.runConsole(d.Name)
+		}
+		return m, nil
+
+	case "v":
+		// Graphical console via virt-viewer — Linux AND Windows friendly.
+		// Launched detached so dirt remains usable while the window is open.
+		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
+			return m, m.runViewer(d.Name)
 		}
 		return m, nil
 
@@ -1134,7 +1201,104 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.pools = nil
 		return m, loadPoolsCmd(m.client)
 	}
+	// :host handles several forms. Delegate to a helper.
+	if h, rest, isHost := splitHostCommand(cmd); isHost {
+		return m.execHostCommand(h, rest)
+	}
 	m.flashf("unknown command: %s", cmd)
+	return m, nil
+}
+
+// splitHostCommand detects ":host" and ":host <rest>" in a trimmed
+// command string. Returns the subcommand (may be empty) and a bool.
+func splitHostCommand(cmd string) (string, string, bool) {
+	if cmd == "host" {
+		return "host", "", true
+	}
+	if strings.HasPrefix(cmd, "host ") {
+		rest := strings.TrimSpace(cmd[len("host "):])
+		return "host", rest, true
+	}
+	return "", "", false
+}
+
+// execHostCommand dispatches the various forms of ":host":
+//   - bare "host"                 → open the view
+//   - "host <name>"               → connect by nickname
+//   - "host <uri>"  (contains //) → connect ad-hoc
+//   - "host add <name> <uri>"     → append to hosts file
+//   - "host rm  <name>"           → remove from hosts file
+func (m Model) execHostCommand(_ string, rest string) (Model, tea.Cmd) {
+	// Bare :host — open the list view.
+	if rest == "" {
+		m.mode = viewHosts
+		m.hostsSel = 0
+		// Ensure the file is loaded (and seeded) and probed.
+		return m, loadHostsListCmd(m.client.URI())
+	}
+
+	fields := strings.Fields(rest)
+	switch fields[0] {
+	case "add":
+		if len(fields) < 3 {
+			m.flashf("usage: :host add <name> <uri>")
+			return m, nil
+		}
+		name := fields[1]
+		uri := strings.Join(fields[2:], " ")
+		for _, h := range m.hosts {
+			if h.Name == name {
+				m.flashf("host %q already exists", name)
+				return m, nil
+			}
+		}
+		m.hosts = append(m.hosts, config.Host{Name: name, URI: uri})
+		if err := config.SaveHosts(m.hosts); err != nil {
+			m.flashf("✗ save hosts: %v", err)
+			return m, nil
+		}
+		m.flashf("✓ added host %s", name)
+		return m, probeHostCmd(config.Host{Name: name, URI: uri})
+	case "rm", "remove", "delete":
+		if len(fields) < 2 {
+			m.flashf("usage: :host rm <name>")
+			return m, nil
+		}
+		name := fields[1]
+		kept := make([]config.Host, 0, len(m.hosts))
+		found := false
+		for _, h := range m.hosts {
+			if h.Name == name {
+				found = true
+				continue
+			}
+			kept = append(kept, h)
+		}
+		if !found {
+			m.flashf("no host named %q", name)
+			return m, nil
+		}
+		if err := config.SaveHosts(kept); err != nil {
+			m.flashf("✗ save hosts: %v", err)
+			return m, nil
+		}
+		m.hosts = kept
+		m.flashf("✓ removed host %s", name)
+		return m, nil
+	}
+
+	// Not a subcommand — treat as a nickname or ad-hoc URI to connect.
+	target := fields[0]
+	if strings.Contains(target, "://") {
+		// Ad-hoc URI (not saved).
+		return m.connectToHost(target, target)
+	}
+	for _, h := range m.hosts {
+		if h.Name == target {
+			return m.connectToHost(h.URI, h.Name)
+		}
+	}
+	m.flashf("no host named %q (try :host add %s <uri>)", target, target)
 	return m, nil
 }
 
@@ -1552,10 +1716,37 @@ func (m Model) maybeFetchSwap() tea.Cmd {
 	return swapCmd(m.client, d.Name)
 }
 
-// maybeFetchGuestUptime returns a Cmd that queries QGA for the highlighted
-// VM's guest uptime if the cached value is stale or missing. Same async
-// pattern as maybeFetchSwap.
+// maybeFetchGuestUptime returns a Cmd that queries QGA for guest uptime.
+// For local URIs we only probe the highlighted VM, because source #2
+// (qemu process start time from /proc/<pid>.mtime) already provides an
+// accurate uptime for every running VM. For remote URIs source #2 is
+// unavailable, so we probe *every* running VM whose cached value is
+// stale — otherwise non-focused rows would show "—" forever.
 func (m Model) maybeFetchGuestUptime() tea.Cmd {
+	if m.snap == nil {
+		return nil
+	}
+	// Remote: probe all running VMs.
+	if !strings.HasPrefix(m.client.URI(), "qemu:///") {
+		var cmds []tea.Cmd
+		for _, d := range m.snap.Domains {
+			if d.State != lv.StateRunning {
+				continue
+			}
+			cached, has := m.guestUptime[d.Name]
+			if has && time.Since(cached.FetchedAt) < guestUptimeTTL {
+				continue
+			}
+			cmds = append(cmds, guestUptimeCmd(m.client, d.Name))
+		}
+		if len(cmds) == 0 {
+			return nil
+		}
+		return tea.Batch(cmds...)
+	}
+	// Local: the per-VM BootedAt already covers the list, so only the
+	// highlighted VM needs the QGA refinement (which catches in-guest
+	// reboots that source #2 misses).
 	d, ok := m.currentDomain()
 	if !ok || d.State != lv.StateRunning {
 		return nil
@@ -1565,6 +1756,74 @@ func (m Model) maybeFetchGuestUptime() tea.Cmd {
 		return nil
 	}
 	return guestUptimeCmd(m.client, d.Name)
+}
+
+// isTextInputting reports whether the user is currently typing into a
+// text input. Used by Tab mode-cycling so the key does not steal focus
+// mid-word.
+func (m Model) isTextInputting() bool {
+	return m.commanding || m.filtering || m.detailSearching ||
+		m.snapshotInput || m.hostInputStage > 0
+}
+
+// cycleMode advances to the next top-level view: main → hosts →
+// networks → pools → snapshots (if a VM is selected) → main. Detail,
+// help, volumes, and the splash are not part of the cycle; from any of
+// them Tab lands in main first, then resumes the cycle on the next tab.
+func (m Model) cycleMode() (tea.Model, tea.Cmd) {
+	next := viewMain
+	switch m.mode {
+	case viewMain:
+		next = viewHosts
+	case viewHosts:
+		next = viewNetworks
+	case viewNetworks:
+		next = viewPools
+	case viewPools:
+		if _, ok := m.currentDomain(); ok {
+			next = viewSnapshots
+		} else {
+			next = viewMain
+		}
+	case viewSnapshots:
+		next = viewMain
+	default:
+		next = viewMain
+	}
+
+	switch next {
+	case viewMain:
+		m.mode = viewMain
+		return m, nil
+	case viewHosts:
+		m.mode = viewHosts
+		if m.hostsSel >= len(m.hosts) {
+			m.hostsSel = 0
+		}
+		return m, loadHostsListCmd(m.client.URI())
+	case viewNetworks:
+		m.mode = viewNetworks
+		m.networksSel = 0
+		m.networks = nil
+		return m, loadNetworksCmd(m.client)
+	case viewPools:
+		m.mode = viewPools
+		m.poolsSel = 0
+		m.pools = nil
+		return m, loadPoolsCmd(m.client)
+	case viewSnapshots:
+		d, ok := m.currentDomain()
+		if !ok {
+			m.mode = viewMain
+			return m, nil
+		}
+		m.mode = viewSnapshots
+		m.snapshotsFor = d.Name
+		m.snapshotsSel = 0
+		m.snapshots = nil
+		return m, loadSnapshotsCmd(m.client, d.Name)
+	}
+	return m, nil
 }
 
 // runConsole suspends the Bubble Tea program, execs `virsh console <name>`,
@@ -1589,4 +1848,30 @@ func (m Model) runEdit(name string) tea.Cmd {
 		}
 		return actionResultMsg{action: "edit", name: name}
 	})
+}
+
+// runViewer launches virt-viewer as a detached GUI subprocess so the
+// master can look at the VM's graphical display without suspending dirt.
+// Works for any guest OS (Linux and Windows alike) because it attaches
+// to libvirt's SPICE/VNC channel, not the serial port. Flashes an error
+// if virt-viewer is not installed or cannot be launched.
+func (m Model) runViewer(name string) tea.Cmd {
+	uri := m.client.URI()
+	return func() tea.Msg {
+		cmd := exec.Command("virt-viewer", "--connect", uri, name)
+		// Fully detach from dirt's terminal — no stdio and a fresh
+		// session so the viewer survives if dirt quits or the tty
+		// closes. Setsid is Linux-specific and fine for this project.
+		cmd.Stdin = nil
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := cmd.Start(); err != nil {
+			return actionResultMsg{action: "viewer", name: name, err: err}
+		}
+		// Reap the child in the background so Go's runtime does not
+		// leave it as a zombie when it eventually exits.
+		go func() { _ = cmd.Wait() }()
+		return actionResultMsg{action: "viewer", name: name}
+	}
 }

@@ -33,6 +33,8 @@ func (m Model) View() string {
 		return m.poolsView()
 	case viewVolumes:
 		return m.volumesView()
+	case viewHosts:
+		return m.hostsView()
 	}
 
 	parts := []string{
@@ -107,6 +109,7 @@ func (m Model) shortHelp() string {
 		key("D") + " kill",
 		key("r") + " reboot",
 		key("c") + " console",
+		key("v") + " viewer",
 		key("e") + " edit",
 		key("Enter") + " detail",
 		key(":") + " cmd",

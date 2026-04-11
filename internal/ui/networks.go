@@ -22,13 +22,7 @@ const (
 func (m Model) networksView() string {
 	width := m.contentWidth()
 
-	title := headerTitle.Render("networks") +
-		headerLabel.Render("    ") +
-		keyHint.Render("s") + headerLabel.Render(" start  ") +
-		keyHint.Render("S") + headerLabel.Render(" stop  ") +
-		keyHint.Render("a") + headerLabel.Render(" autostart  ") +
-		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
-		keyHint.Render("esc") + headerLabel.Render(" back")
+	title := headerTitle.Render("networks")
 
 	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", netNameW),

@@ -10,25 +10,158 @@ import (
 
 // Column widths for the list table.
 const (
-	colNameW   = 20
-	colStateW  = 9
-	colIPW     = 15
-	colOSW     = 13
-	colVCPUW   = 5
-	colMemW    = 8
-	colMemPctW = 6
-	colCPUW    = 7
-	colUptimeW = 8
-	colIOReadW = 5
+	colNameW    = 20
+	colStateW   = 9
+	colIPW      = 15
+	colOSW      = 13
+	colVCPUW    = 5
+	colMemW     = 8
+	colMemPctW  = 6
+	colCPUW     = 7
+	colUptimeW  = 8
+	colIOReadW  = 5
 	colIOWriteW = 5
 )
+
+// column describes a VM list column. The render function produces the
+// cell value for a given domain; left align and required control layout
+// and whether the column can be dropped on narrow terminals. The master
+// list (vmColumns below) is ordered left→right by priority, so columns
+// are dropped from the right until the remaining row fits the width.
+type column struct {
+	label     string
+	sort      sortColumn // 0 for non-sortable
+	width     int
+	leftAlign bool
+	required  bool
+	render    func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string
+}
+
+// vmColumns is the master list of VM-table columns, left to right, in
+// priority order. Required columns (NAME, STATE, IP) are always shown;
+// everything else is droppable on narrow terminals.
+var vmColumns = []column{
+	{label: "NAME", sort: sortByName, width: colNameW, leftAlign: true, required: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			return truncate(d.Name, colNameW)
+		}},
+	{label: "STATE", sort: sortByState, width: colStateW, leftAlign: true, required: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			return truncate(d.State.String(), colStateW)
+		}},
+	{label: "IP", sort: sortByIP, width: colIPW, leftAlign: true, required: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.IP == "" {
+				return "—"
+			}
+			return truncate(d.IP, colIPW)
+		}},
+	{label: "OS", sort: sortByOS, width: colOSW, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.OS == "" {
+				return "—"
+			}
+			return truncate(d.OS, colOSW)
+		}},
+	{label: "vCPU", sort: sortByVCPU, width: colVCPUW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			return fmt.Sprintf("%d", d.NrVCPU)
+		}},
+	{label: "MEM", sort: sortByMem, width: colMemW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			return formatKB(d.MaxMemKB)
+		}},
+	{label: "MEM%", sort: sortByMemPct, width: colMemPctW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning {
+				return "—"
+			}
+			if pct, ok := domainMemUsedPct(d); ok {
+				return fmt.Sprintf("%4.1f%%", pct)
+			}
+			return "—"
+		}},
+	{label: "CPU%", sort: sortByCPU, width: colCPUW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return "—"
+			}
+			return fmt.Sprintf("%5.1f%%", h.currentCPU())
+		}},
+	{label: "UPTIME", sort: sortByUptime, width: colUptimeW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning {
+				return "—"
+			}
+			if up, accurate := effectiveUptime(d, h, qga); up > 0 && accurate {
+				return formatDuration(up)
+			}
+			return "—"
+		}},
+	{label: "IO-R", width: colIOReadW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return "—"
+			}
+			return fmt.Sprintf("%.0f", currentRate(h.blockRdOps))
+		}},
+	{label: "IO-W", width: colIOWriteW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return "—"
+			}
+			return fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
+		}},
+}
+
+// columnsWidth returns the rendered width of a consecutive slice of
+// vmColumns, including the leading indent and two-space separators.
+func columnsWidth(cols []column) int {
+	if len(cols) == 0 {
+		return 0
+	}
+	w := 1 // leading space from the row indent
+	for _, c := range cols {
+		w += c.width
+	}
+	w += (len(cols) - 1) * 2
+	return w
+}
+
+// fitColumns returns how many of vmColumns fit in avail characters of
+// inner row width. Required columns are never dropped even if the row
+// would overflow — in that case the caller accepts a bit of wrapping
+// rather than hiding critical fields.
+func fitColumns(avail int) int {
+	required := 0
+	for _, c := range vmColumns {
+		if !c.required {
+			break
+		}
+		required++
+	}
+	for n := len(vmColumns); n > required; n-- {
+		if columnsWidth(vmColumns[:n]) <= avail {
+			return n
+		}
+	}
+	return required
+}
 
 // listView renders the VM table.
 func (m Model) listView() string {
 	width := m.contentWidth()
 	doms := m.visibleDomains()
 
-	header := renderHeaderRow(m.sortColumn, m.sortDesc)
+	// Compute how many columns fit. The inner area is the box width
+	// minus the rounded border (2) minus the horizontal padding (2).
+	inner := width - borderWidth - 2
+	if inner < 1 {
+		inner = 1
+	}
+	nCols := fitColumns(inner)
+
+	header := renderHeaderRow(m.sortColumn, m.sortDesc, nCols)
 
 	if len(doms) == 0 {
 		empty := lipgloss.NewStyle().Foreground(colDimmed).Italic(true).
@@ -62,104 +195,65 @@ func (m Model) listView() string {
 	rows = append(rows, header)
 	for i := m.offset; i < end; i++ {
 		d := doms[i]
-		row := renderDataRow(d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected)
+		row := renderDataRow(d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, nCols)
 		rows = append(rows, row)
 	}
 	return listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
 }
 
 // renderHeaderRow renders the column-header row, marking the active sort
-// column with an arrow (▲ asc, ▼ desc).
-func renderHeaderRow(active sortColumn, desc bool) string {
-	mark := func(label string, col sortColumn, leftAlign bool, w int) string {
-		s := label
-		if active == col {
+// column with an arrow (▲ asc, ▼ desc). Only the first nCols of
+// vmColumns are shown; dropped columns become invisible.
+func renderHeaderRow(active sortColumn, desc bool, nCols int) string {
+	if nCols > len(vmColumns) {
+		nCols = len(vmColumns)
+	}
+	cells := make([]string, 0, nCols)
+	for _, c := range vmColumns[:nCols] {
+		s := c.label
+		if c.sort != 0 && active == c.sort {
 			arrow := "▲"
 			if desc {
 				arrow = "▼"
 			}
-			s = label + arrow
+			s = c.label + arrow
 		}
-		if leftAlign {
-			return padRight(s, w)
+		if c.leftAlign {
+			cells = append(cells, padRight(s, c.width))
+		} else {
+			cells = append(cells, padLeft(s, c.width))
 		}
-		return padLeft(s, w)
-	}
-	cols := []string{
-		mark("NAME", sortByName, true, colNameW),
-		mark("STATE", sortByState, true, colStateW),
-		mark("IP", sortByIP, true, colIPW),
-		mark("OS", sortByOS, true, colOSW),
-		mark("vCPU", sortByVCPU, false, colVCPUW),
-		mark("MEM", sortByMem, false, colMemW),
-		mark("MEM%", sortByMemPct, false, colMemPctW),
-		mark("CPU%", sortByCPU, false, colCPUW),
-		mark("UPTIME", sortByUptime, false, colUptimeW),
-		padLeft("IO-R", colIOReadW),
-		padLeft("IO-W", colIOWriteW),
 	}
 	// Leading space matches the per-row indent used by renderDataRow,
 	// so columns line up with their headers exactly.
-	return listHeaderRow.Render(" " + strings.Join(cols, "  "))
+	return listHeaderRow.Render(" " + strings.Join(cells, "  "))
 }
 
-// renderDataRow renders one VM row, optionally highlighted.
-func renderDataRow(d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool) string {
-	name := truncate(d.Name, colNameW)
-	state := truncate(d.State.String(), colStateW)
-	ip := truncate(d.IP, colIPW)
-	if ip == "" {
-		ip = "—"
+// renderDataRow renders one VM row, optionally highlighted. Only the
+// first nCols of vmColumns are shown. The STATE column uses a state-
+// specific colour when not selected; for selected rows the colour is
+// stripped so the rowSelected style can apply its own fg/bg.
+func renderDataRow(d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool, nCols int) string {
+	if nCols > len(vmColumns) {
+		nCols = len(vmColumns)
 	}
-	osLabel := truncate(d.OS, colOSW)
-	if osLabel == "" {
-		osLabel = "—"
-	}
-	mem := formatKB(d.MaxMemKB)
-	memPct := "—"
-	cpu := "—"
-	uptime := "—"
-	ior := "—"
-	iow := "—"
-	if d.State == lv.StateRunning {
-		if h != nil {
-			cpu = fmt.Sprintf("%5.1f%%", h.currentCPU())
-			ior = fmt.Sprintf("%.0f", currentRate(h.blockRdOps))
-			iow = fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
+	cells := make([]string, 0, nCols)
+	for _, c := range vmColumns[:nCols] {
+		raw := c.render(d, h, qga)
+		var padded string
+		if c.leftAlign {
+			padded = padRight(raw, c.width)
+		} else {
+			padded = padLeft(raw, c.width)
 		}
-		if pct, ok := domainMemUsedPct(d); ok {
-			memPct = fmt.Sprintf("%4.1f%%", pct)
+		// Colour the STATE cell by the domain state for non-selected rows.
+		if c.sort == sortByState && !selected {
+			padded = stateStyleFor(d.State).Render(padded)
 		}
-		if up, accurate := effectiveUptime(d, h, qga); up > 0 {
-			uptime = formatDuration(up)
-			if !accurate {
-				uptime = "≥" + uptime
-			}
-		}
+		cells = append(cells, padded)
 	}
-
-	stateColored := stateStyleFor(d.State).Render(padRight(state, colStateW))
-
-	cols := []string{
-		padRight(name, colNameW),
-		stateColored,
-		padRight(ip, colIPW),
-		padRight(osLabel, colOSW),
-		padLeft(fmt.Sprintf("%d", d.NrVCPU), colVCPUW),
-		padLeft(mem, colMemW),
-		padLeft(memPct, colMemPctW),
-		padLeft(cpu, colCPUW),
-		padLeft(uptime, colUptimeW),
-		padLeft(ior, colIOReadW),
-		padLeft(iow, colIOWriteW),
-	}
-	row := strings.Join(cols, "  ")
+	row := strings.Join(cells, "  ")
 	if selected {
-		// rowSelected sets bg/fg; lipgloss will respect existing fg in segments,
-		// so for the selected row we strip color from state and re-render plain.
-		plainState := padRight(state, colStateW)
-		cols[1] = plainState
-		row = strings.Join(cols, "  ")
 		return rowSelected.Render(" " + row)
 	}
 	return " " + row

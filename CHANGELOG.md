@@ -2,6 +2,43 @@
 
 All notable changes to dirt are documented here.
 
+## v0.5.1 — 2026-04-11
+
+**Multi-host support, graphical console, and honest remote metrics.**
+
+### Multi-host
+- New **`:host`** command palette and view: list known libvirt endpoints, connect with `Enter`, re-probe with `R`, remove with `D`, add with `a` (two-step prompt for nickname and URI) or edit the file directly with `e`.
+- Host list persisted at `~/.config/dirt/hosts` (plain-text, one `<name> <uri>` per line). Seeded on first launch with the URI dirt was started against.
+- Async host switching via `tea.Cmd` with a 5s timeout — slow SSH never freezes the UI. On success, per-domain history / swap / uptime state is reset so the new host is shown truthfully.
+- Parallel "probe all hosts" on view open and on `R` refresh: each host gets a short-lived `NewConnect → GetHostname → Snapshot → Close` triple, results stream into the table as they arrive.
+- Palette shortcuts: `:host <name>` (connect by nickname), `:host <uri>` (ad-hoc), `:host add <name> <uri>`, `:host rm <name>`.
+
+### Remote-aware header
+- `HostStats()` branches on the URI: local `qemu:///…` keeps reading `/proc/*`; remote URIs use `virNodeGetCPUStats` and `virNodeGetMemoryStats` via libvirt's node APIs.
+- Host title gains a subtle `(remote)` tag when the sample came from libvirt's node APIs.
+- Swap, load average, host uptime, and `SReclaimable` are not exposed by node APIs — those fields now display `—` instead of silently lying.
+
+### Honest uptime
+- When neither QGA nor the local `/proc/<pid>.mtime` source is available, the UPTIME column now shows `—` instead of a misleading `≥Ns` observation window. Per-VM title omits the uptime entirely.
+- For remote connections, QGA uptime is now probed for **every** running VM (not just the highlighted one), so the list populates with real uptimes wherever QGA is installed.
+
+### Graphical console
+- New **`v`** key in the VM list opens `virt-viewer` as a detached GUI subprocess — dirt stays usable while the viewer window is open. Works for any guest OS, including Windows, because it attaches to SPICE/VNC instead of a serial port.
+
+### Navigation
+- **`Tab`** cycles top-level views: main → hosts → networks → pools → snapshots → main. Suppressed while typing into a text input (filter, command, snapshot name, host input, detail search).
+
+### Table layout
+- VM table columns now drop from the right on narrow terminals instead of wrapping. `NAME`, `STATE`, `IP` are always kept; everything else falls out in priority order as the terminal shrinks.
+- View titles no longer carry duplicate key hints — the bottom status bar is now the single source of truth for keybindings in every mode, matching the main VM view's style.
+
+### Fixes
+- Every `headerBox` / `listBox` in dirt rendered two characters wider than intended because lipgloss's `Style.Width(N)` sets *content* width and adds the border on top. For side-by-side header boxes this clipped the host box's entire right edge — top-right corner, every row's right border, and bottom-right corner fell off the terminal. Introduced a `borderWidth` constant and subtracted it at every box callsite.
+
+### Docs
+- README reorganised: explicit requirements split between host and guests; a copy-paste "Quick install on Ubuntu / Debian" block; new **Hosts view** keybindings section; caveats updated for remote limitations.
+- Help modal updated with `v`, `Tab`, all four `:host` forms, and a full **Hosts view** section.
+
 ## v0.5.0 — 2026-04-10
 
 **Layout overhaul, new metrics, safety confirmations, bug fixes.**

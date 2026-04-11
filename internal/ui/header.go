@@ -98,12 +98,12 @@ func (m Model) runningVMBox(d lv.Domain, boxWidth int) string {
 	title := headerTitle.Render(d.Name) +
 		headerLabel.Render("  ") + stateRunning.Render("running") +
 		headerLabel.Render("  ") + headerValue.Render(fmt.Sprintf("%d vCPU", d.NrVCPU))
-	if up, accurate := effectiveUptime(d, h, m.guestUptime[d.Name]); up > 0 {
-		label := formatDuration(up)
-		if !accurate {
-			label = "≥" + label
-		}
-		title += headerLabel.Render("  uptime ") + headerValue.Render(label)
+	// Only show uptime when we have a trustworthy source — QGA's
+	// /proc/uptime inside the guest or, locally, the qemu process start
+	// time. Otherwise the field stays empty; showing a dirt-observation
+	// window labelled "uptime" would mislead the reader.
+	if up, accurate := effectiveUptime(d, h, m.guestUptime[d.Name]); up > 0 && accurate {
+		title += headerLabel.Render("  uptime ") + headerValue.Render(formatDuration(up))
 	}
 	if d.OS != "" {
 		title += headerLabel.Render("  ") + headerValue.Render(d.OS)

@@ -35,16 +35,42 @@ I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with
 
 ## Requirements
 
-- A Linux host running libvirt with at least one defined domain
-- Membership in the `libvirt` group (so the user can talk to `qemu:///system` without sudo)
-- Go 1.21+ to build
-- libvirt headers installed (`apt install libvirt-dev pkg-config` on Debian/Ubuntu)
+**On the host running dirt:**
 
-For full feature coverage, install `qemu-guest-agent` inside guests where you want **swap usage** (otherwise only swap *activity* is shown).
+- Linux (tested on Ubuntu, should work on any distro with libvirt)
+- A running libvirt daemon with at least one defined domain
+- Membership in the `libvirt` group — so the user can talk to `qemu:///system` without sudo
+- **Go 1.21+** and **libvirt development headers** (for building; dirt uses cgo bindings)
+- **virt-viewer** *(optional)* — for the graphical console via the `C` key, the only way to reach Windows guests
+
+**Inside guests** *(optional but recommended)*:
+
+- **qemu-guest-agent** — unlocks swap usage, guest uptime over remote URIs, and in-guest reboot detection. Without it, dirt falls back to less accurate sources.
 
 ## Installation
 
-### From source
+### Quick install on Ubuntu / Debian
+
+```sh
+sudo apt install -y golang libvirt-dev pkg-config virt-viewer
+sudo usermod -aG libvirt $USER         # then log out and back in
+go install github.com/llcoolkm/dirt@latest
+export PATH=$PATH:~/go/bin             # add to ~/.bashrc to persist
+dirt
+```
+
+No git clone is required — `go install` pulls the source from the module proxy, compiles it against your local libvirt headers, and drops the binary at `~/go/bin/dirt`.
+
+### Pinning a specific version
+
+```sh
+go install github.com/llcoolkm/dirt@v0.5.1   # exact tag
+go install github.com/llcoolkm/dirt@main     # bleeding edge
+```
+
+### Building from a working copy
+
+Useful if you want to hack on dirt:
 
 ```sh
 git clone https://github.com/llcoolkm/dirt
@@ -53,11 +79,22 @@ go build -o dirt .
 sudo install -m 0755 dirt /usr/local/bin/dirt
 ```
 
-Or install into `~/go/bin`:
+### QGA in guests (for full feature coverage)
+
+Inside each guest you want dirt to show swap usage / guest uptime / in-guest reboot detection:
 
 ```sh
-go install github.com/llcoolkm/dirt@latest
+sudo apt install -y qemu-guest-agent
+sudo systemctl enable --now qemu-guest-agent
 ```
+
+Then verify from the host:
+
+```sh
+virsh qemu-agent-command <domain> '{"execute":"guest-ping"}'
+```
+
+A `{"return":{}}` response means the channel is live; dirt will pick it up on the next refresh.
 
 ## Usage
 
@@ -116,7 +153,8 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `r` | reboot |
 | `p` | pause |
 | `R` | resume from pause |
-| `c` | open serial console (`Ctrl-]` to detach) |
+| `c` | open serial console (`Ctrl-]` to detach) — Linux-friendly |
+| `v` | open graphical console via `virt-viewer` — works for Windows too |
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |
 | `x` | undefine — delete a stopped VM (asks `y` to confirm) |
 
@@ -124,9 +162,15 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | Key | Action |
 |-----|--------|
 | `:` | open command palette |
+| `Tab` | cycle forward through top-level views: main → hosts → networks → pools → snapshots → main |
 | `:snap` | snapshots of selected VM |
 | `:net` | libvirt networks |
 | `:pool` | storage pools (and drill-down into volumes) |
+| `:host` | list of known libvirt endpoints (switch hypervisors) |
+| `:host <name>` | connect by nickname |
+| `:host <uri>` | connect to an ad-hoc URI (not saved) |
+| `:host add <name> <uri>` | append to `~/.config/dirt/hosts` |
+| `:host rm <name>` | remove from `~/.config/dirt/hosts` |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
 | `:q` | quit |
@@ -158,6 +202,19 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `Enter` / `d` | drill into pool's volumes |
 | `R` / `F5` | refresh |
 | `esc` / `q` | back |
+
+### Hosts view
+| Key | Action |
+|-----|--------|
+| `j` / `k` | navigate hosts |
+| `Enter` | connect to selected host (async, with 5s timeout) |
+| `a` | add a new host — two-step prompt (`name`, then `uri`) |
+| `e` | open the hosts file in `$EDITOR`; reloads on exit |
+| `R` / `F5` | re-probe all hosts |
+| `D` / `x` | remove selected host (asks `y` to confirm) |
+| `esc` / `q` | back to VM list |
+
+The hosts list is persisted in `~/.config/dirt/hosts` (plain-text, one `<name> <uri>` per line), seeded on first launch with whichever URI dirt was started against.
 
 ### Detail view
 | Key | Action |
@@ -238,9 +295,11 @@ dirt/
 ```
 
 ## Caveats and known limits
-- **Single host** — multi-host switching is not yet, but `--uri` / `LIBVIRT_DEFAULT_URI` works for any single libvirt endpoint
-- **Memory bar accuracy** depends on the guest's balloon driver. Without one, falls back to allocated memory (which always reads as 100% in libvirt's eyes)
-- **Console detach** uses `Ctrl-]` (the `virsh console` default)
+- **Remote host header** — for remote URIs (`qemu+ssh://`, `qemu+tls://`, …) dirt uses libvirt's own node APIs for CPU and memory. Swap, load average, and host uptime are not exposed by those APIs, so those fields show `—` and the header title is tagged `(remote)`.
+- **Remote VM uptime** without `qemu-guest-agent` reads `—`. Locally, dirt uses the qemu process start time; remotely, only QGA can yield a true uptime.
+- **Memory bar accuracy** depends on the guest's balloon driver. Without one, falls back to allocated memory (which always reads as 100% in libvirt's eyes).
+- **Console detach** uses `Ctrl-]` (the `virsh console` default).
+- **Windows guests** have no useful serial console by default — use `v` (virt-viewer) rather than `c` (virsh console).
 
 ## Author
 

@@ -23,13 +23,7 @@ const (
 func (m Model) snapshotsView() string {
 	width := m.contentWidth()
 
-	title := headerTitle.Render("snapshots: ") + headerValue.Render(m.snapshotsFor) +
-		headerLabel.Render("    ") +
-		keyHint.Render("c") + headerLabel.Render(" create  ") +
-		keyHint.Render("r") + headerLabel.Render(" revert  ") +
-		keyHint.Render("D") + headerLabel.Render(" delete  ") +
-		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
-		keyHint.Render("esc") + headerLabel.Render(" back")
+	title := headerTitle.Render("snapshots: ") + headerValue.Render(m.snapshotsFor)
 
 	// Header row. Leading space matches the per-row indent below.
 	headerRow := listHeaderRow.Render(" " + strings.Join([]string{

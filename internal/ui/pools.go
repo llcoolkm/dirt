@@ -29,13 +29,7 @@ const (
 func (m Model) poolsView() string {
 	width := m.contentWidth()
 
-	title := headerTitle.Render("storage pools") +
-		headerLabel.Render("    ") +
-		keyHint.Render("s") + headerLabel.Render(" start  ") +
-		keyHint.Render("S") + headerLabel.Render(" stop  ") +
-		keyHint.Render("Enter") + headerLabel.Render(" volumes  ") +
-		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
-		keyHint.Render("esc") + headerLabel.Render(" back")
+	title := headerTitle.Render("storage pools")
 
 	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", poolNameW),
@@ -142,10 +136,7 @@ func friendlyConfirmAction(action string) string {
 func (m Model) volumesView() string {
 	width := m.contentWidth()
 
-	title := headerTitle.Render("volumes: ") + headerValue.Render(m.volumesFor) +
-		headerLabel.Render("    ") +
-		keyHint.Render("R") + headerLabel.Render(" refresh  ") +
-		keyHint.Render("esc") + headerLabel.Render(" back to pools")
+	title := headerTitle.Render("volumes: ") + headerValue.Render(m.volumesFor)
 
 	header := listHeaderRow.Render(" " + strings.Join([]string{
 		padRight("NAME", volNameW),
