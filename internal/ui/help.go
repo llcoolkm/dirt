@@ -66,7 +66,9 @@ func (m Model) helpView() string {
 				{"c", "serial console (Ctrl-] to detach) — Linux"},
 				{"v", "graphical console (virt-viewer) — any OS"},
 				{"e", "edit XML in $EDITOR (virsh edit)"},
-				{"x", "undefine — delete a stopped VM (asks y)"},
+				{"x", "open raw XML detail view"},
+				{"Enter / d", "open detail view"},
+				{"U", "undefine — delete a stopped VM (asks y)"},
 			},
 		},
 		{

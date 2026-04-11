@@ -107,7 +107,7 @@ dirt
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--uri <uri>` | `$LIBVIRT_DEFAULT_URI` or `qemu:///system` | libvirt URI to connect to |
-| `--refresh <duration>` | `2s` | refresh interval (clamped to 200ms minimum) |
+| `--refresh <duration>` | `1s` | refresh interval (clamped to 200ms minimum) |
 | `--version` | — | print version and exit |
 
 Examples:
@@ -158,7 +158,9 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `c` | open serial console (`Ctrl-]` to detach) — Linux-friendly |
 | `v` | open graphical console via `virt-viewer` — works for Windows too |
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |
-| `x` | undefine — delete a stopped VM (asks `y` to confirm) |
+| `x` | open raw XML detail view |
+| `Enter` / `d` | open detail view |
+| `U` | undefine — delete a stopped VM (asks `y` to confirm) |
 
 ### Command palette & view switching
 | Key | Action |

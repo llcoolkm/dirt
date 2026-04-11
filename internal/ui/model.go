@@ -16,7 +16,7 @@ import (
 )
 
 // defaultRefreshInterval is the fall-back tick rate when none is configured.
-const defaultRefreshInterval = 2 * time.Second
+const defaultRefreshInterval = 1 * time.Second
 
 // viewMode is the high-level UI state — which screen the user is currently on.
 type viewMode int
@@ -799,6 +799,21 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "x":
+		// Open the raw XML detail view. When the VMware-style info view
+		// lands later, Enter / d will point at that and x will remain
+		// the expert path into the underlying libvirt XML.
+		if d, ok := m.currentDomain(); ok {
+			m.mode = viewDetail
+			m.detailFor = d.Name
+			m.detailXML = "(loading…)"
+			m.detailLines = []string{m.detailXML}
+			return m, loadDetailCmd(m.client, d.Name)
+		}
+		return m, nil
+
+	case "U":
+		// Undefine a stopped VM. Destructive → always confirmed.
+		// (Was on lowercase x until we promoted x to open the XML view.)
 		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "undefine"

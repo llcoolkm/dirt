@@ -35,7 +35,7 @@ func resolveVersion() string {
 func main() {
 	var (
 		uriFlag     = flag.String("uri", "", "libvirt URI (default: $LIBVIRT_DEFAULT_URI or qemu:///system)")
-		refreshFlag = flag.Duration("refresh", 2*time.Second, "refresh interval (e.g. 1s, 500ms, 5s)")
+		refreshFlag = flag.Duration("refresh", 1*time.Second, "refresh interval (e.g. 1s, 500ms, 5s)")
 		versionFlag = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Usage = func() {
