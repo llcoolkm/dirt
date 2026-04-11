@@ -54,7 +54,7 @@ func (m Model) splashView() string {
 		h = 24
 	}
 
-	logo := headerTitle.Render("dirt") + headerLabel.Render(" — David's virtual UI")
+	logo := headerTitle.Render("dirt") + headerLabel.Render(" — libvirt TUI")
 	sub := headerLabel.Render("connecting to libvirt") +
 		flashStyle.Render("…")
 

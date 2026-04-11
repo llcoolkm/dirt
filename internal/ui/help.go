@@ -76,9 +76,6 @@ func (m Model) helpView() string {
 				{":net", "libvirt networks"},
 				{":pool", "storage pools"},
 				{":host", "list libvirt endpoints"},
-				{":host <name>", "connect by nickname"},
-				{":host add <n> <uri>", "save a new host"},
-				{":host rm <name>", "remove a host"},
 				{":vm", "back to VM list"},
 				{":help", "this help screen"},
 				{":q", "quit"},
@@ -163,7 +160,7 @@ func (m Model) helpView() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, col1Box, col2Box)
 
-	footer := headerLabel.Render("dirt — David's virtual UI · libvirt TUI in the htop tradition")
+	footer := headerLabel.Render("dirt — libvirt TUI in the htop tradition")
 
 	pane := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

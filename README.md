@@ -1,4 +1,4 @@
-# dirt — David's libvirt TUI
+# dirt — a libvirt TUI
 
 A k9s-style terminal UI for managing libvirt / QEMU / KVM virtual machines, taking inspiration from htop.
 
@@ -167,10 +167,6 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `:net` | libvirt networks |
 | `:pool` | storage pools (and drill-down into volumes) |
 | `:host` | list of known libvirt endpoints (switch hypervisors) |
-| `:host <name>` | connect by nickname |
-| `:host <uri>` | connect to an ad-hoc URI (not saved) |
-| `:host add <name> <uri>` | append to `~/.config/dirt/hosts` |
-| `:host rm <name>` | remove from `~/.config/dirt/hosts` |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
 | `:q` | quit |

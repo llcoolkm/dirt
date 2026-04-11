@@ -1,4 +1,4 @@
-// dirt — David's virtual UI. A k9s-style TUI for libvirt.
+// dirt — a k9s-style TUI for libvirt.
 package main
 
 import (

@@ -1200,105 +1200,12 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.poolsSel = 0
 		m.pools = nil
 		return m, loadPoolsCmd(m.client)
-	}
-	// :host handles several forms. Delegate to a helper.
-	if h, rest, isHost := splitHostCommand(cmd); isHost {
-		return m.execHostCommand(h, rest)
-	}
-	m.flashf("unknown command: %s", cmd)
-	return m, nil
-}
-
-// splitHostCommand detects ":host" and ":host <rest>" in a trimmed
-// command string. Returns the subcommand (may be empty) and a bool.
-func splitHostCommand(cmd string) (string, string, bool) {
-	if cmd == "host" {
-		return "host", "", true
-	}
-	if strings.HasPrefix(cmd, "host ") {
-		rest := strings.TrimSpace(cmd[len("host "):])
-		return "host", rest, true
-	}
-	return "", "", false
-}
-
-// execHostCommand dispatches the various forms of ":host":
-//   - bare "host"                 → open the view
-//   - "host <name>"               → connect by nickname
-//   - "host <uri>"  (contains //) → connect ad-hoc
-//   - "host add <name> <uri>"     → append to hosts file
-//   - "host rm  <name>"           → remove from hosts file
-func (m Model) execHostCommand(_ string, rest string) (Model, tea.Cmd) {
-	// Bare :host — open the list view.
-	if rest == "" {
+	case "host", "hosts":
 		m.mode = viewHosts
 		m.hostsSel = 0
-		// Ensure the file is loaded (and seeded) and probed.
 		return m, loadHostsListCmd(m.client.URI())
 	}
-
-	fields := strings.Fields(rest)
-	switch fields[0] {
-	case "add":
-		if len(fields) < 3 {
-			m.flashf("usage: :host add <name> <uri>")
-			return m, nil
-		}
-		name := fields[1]
-		uri := strings.Join(fields[2:], " ")
-		for _, h := range m.hosts {
-			if h.Name == name {
-				m.flashf("host %q already exists", name)
-				return m, nil
-			}
-		}
-		m.hosts = append(m.hosts, config.Host{Name: name, URI: uri})
-		if err := config.SaveHosts(m.hosts); err != nil {
-			m.flashf("✗ save hosts: %v", err)
-			return m, nil
-		}
-		m.flashf("✓ added host %s", name)
-		return m, probeHostCmd(config.Host{Name: name, URI: uri})
-	case "rm", "remove", "delete":
-		if len(fields) < 2 {
-			m.flashf("usage: :host rm <name>")
-			return m, nil
-		}
-		name := fields[1]
-		kept := make([]config.Host, 0, len(m.hosts))
-		found := false
-		for _, h := range m.hosts {
-			if h.Name == name {
-				found = true
-				continue
-			}
-			kept = append(kept, h)
-		}
-		if !found {
-			m.flashf("no host named %q", name)
-			return m, nil
-		}
-		if err := config.SaveHosts(kept); err != nil {
-			m.flashf("✗ save hosts: %v", err)
-			return m, nil
-		}
-		m.hosts = kept
-		m.flashf("✓ removed host %s", name)
-		return m, nil
-	}
-
-	// Not a subcommand — treat as a nickname or ad-hoc URI to connect.
-	target := fields[0]
-	if strings.Contains(target, "://") {
-		// Ad-hoc URI (not saved).
-		return m.connectToHost(target, target)
-	}
-	for _, h := range m.hosts {
-		if h.Name == target {
-			return m.connectToHost(h.URI, h.Name)
-		}
-	}
-	m.flashf("no host named %q (try :host add %s <uri>)", target, target)
+	m.flashf("unknown command: %s", cmd)
 	return m, nil
 }
 
