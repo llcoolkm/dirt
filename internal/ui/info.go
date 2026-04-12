@@ -76,7 +76,8 @@ func (m Model) infoView() string {
 
 	bottom := statusBar.Width(width).Render(" " +
 		key("j/k") + " scroll  " + key("g/G") + " top/bottom  " +
-		key("e") + " edit  " + key("x") + " raw xml  " + key("esc") + " back")
+		key("e") + " edit  " + key("p") + " perf  " +
+		key("x") + " xml  " + key("esc") + " back")
 
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
 }
@@ -328,6 +329,10 @@ func (m Model) handleInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.runEdit(name)
+	case "p", "P":
+		// Jump to performance graphs for this VM.
+		m.mode = viewGraphs
+		return m, nil
 	}
 	return m, nil
 }

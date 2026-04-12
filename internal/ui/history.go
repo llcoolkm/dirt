@@ -8,31 +8,40 @@ import (
 
 
 
-// historyWindow is how many samples we keep per metric for sparklines.
-const historyWindow = 30
+// historyWindow is how many samples we keep per metric. With a 1s
+// refresh this covers 5 minutes of data — enough for the sparklines
+// in the header *and* the full-width performance graphs view.
+const historyWindow = 300
 
 // domHistory tracks rolling per-domain stats for rate and sparkline computation.
 // All Last* fields hold the previous cumulative reading; rates come from diffs.
 type domHistory struct {
-	cpu        []float64 // % of one vCPU
-	blockRd    []float64 // bytes/sec
-	blockWr    []float64
-	blockRdOps []float64 // IOPS
-	blockWrOps []float64
-	netRx      []float64 // bytes/sec
-	netTx      []float64
-	netRxPps   []float64 // packets/sec
-	netTxPps   []float64
-	swapIn     []float64 // pages/sec
-	swapOut    []float64
-	majorFault []float64 // faults/sec
-
-	// Latest computed average latency in microseconds (read / write).
-	rdLatencyUs float64
-	wrLatencyUs float64
+	cpu         []float64   // % of one vCPU (aggregate)
+	cpuUser     []float64   // user-space CPU %
+	cpuSystem   []float64   // kernel CPU %
+	vcpuPct     [][]float64 // per-vCPU CPU % (one slice per vCPU)
+	memUsedPct  []float64   // guest memory used% (from balloon stats)
+	memCachePct []float64   // page cache % of balloon available
+	swapUsedPct []float64   // swap used% (from QGA, updated externally)
+	blockRd     []float64   // bytes/sec
+	blockWr     []float64
+	blockRdOps  []float64   // IOPS
+	blockWrOps  []float64
+	rdLatencyUs []float64   // µs per read op
+	wrLatencyUs []float64   // µs per write op
+	netRx       []float64   // bytes/sec
+	netTx       []float64
+	netRxPps    []float64   // packets/sec
+	netTxPps    []float64
+	swapIn      []float64   // pages/sec
+	swapOut     []float64
+	majorFault  []float64   // faults/sec
 
 	// Cumulative previous samples for delta math.
 	lastCPUNs       uint64
+	lastCPUUserNs   uint64
+	lastCPUSystemNs uint64
+	lastVCPUTimes   []uint64
 	lastBlockRd     uint64
 	lastBlockWr     uint64
 	lastBlockRdReqs uint64
@@ -61,6 +70,15 @@ func (h *domHistory) update(d lv.Domain) {
 		h.firstRunningSince = d.SampledAt
 	}
 
+	// Memory gauges are instantaneous, not cumulative counters.
+	if d.BalloonAvailableKB > 0 {
+		usedKB := d.BalloonAvailableKB - d.BalloonUnusedKB - d.BalloonDiskCachesKB
+		usedPct := float64(usedKB) / float64(d.BalloonAvailableKB) * 100
+		cachePct := float64(d.BalloonDiskCachesKB) / float64(d.BalloonAvailableKB) * 100
+		h.memUsedPct = appendCap(h.memUsedPct, usedPct, historyWindow)
+		h.memCachePct = appendCap(h.memCachePct, cachePct, historyWindow)
+	}
+
 	if h.hasPrev {
 		dt := d.SampledAt.Sub(h.lastT).Seconds()
 		if dt > 0 {
@@ -74,6 +92,27 @@ func (h *domHistory) update(d lv.Domain) {
 			cpuPct := dCPU / dt / vcpus * 100
 			h.cpu = appendCap(h.cpu, cpuPct, historyWindow)
 
+			// User / system CPU breakdown.
+			if d.CPUUserNs > 0 || h.lastCPUUserNs > 0 {
+				userPct := float64(d.CPUUserNs-h.lastCPUUserNs) / 1e9 / dt / vcpus * 100
+				h.cpuUser = appendCap(h.cpuUser, userPct, historyWindow)
+			}
+			if d.CPUSystemNs > 0 || h.lastCPUSystemNs > 0 {
+				sysPct := float64(d.CPUSystemNs-h.lastCPUSystemNs) / 1e9 / dt / vcpus * 100
+				h.cpuSystem = appendCap(h.cpuSystem, sysPct, historyWindow)
+			}
+
+			// Per-vCPU breakdown.
+			if len(d.VCPUTimes) > 0 && len(h.lastVCPUTimes) == len(d.VCPUTimes) {
+				for len(h.vcpuPct) < len(d.VCPUTimes) {
+					h.vcpuPct = append(h.vcpuPct, nil)
+				}
+				for i, t := range d.VCPUTimes {
+					pct := float64(t-h.lastVCPUTimes[i]) / 1e9 / dt * 100
+					h.vcpuPct[i] = appendCap(h.vcpuPct[i], pct, historyWindow)
+				}
+			}
+
 			h.blockRd = appendCap(h.blockRd, float64(d.BlockRdBytes-h.lastBlockRd)/dt, historyWindow)
 			h.blockWr = appendCap(h.blockWr, float64(d.BlockWrBytes-h.lastBlockWr)/dt, historyWindow)
 
@@ -85,11 +124,17 @@ func (h *domHistory) update(d lv.Domain) {
 			// Latency = (Δ time in nanoseconds) / (Δ requests). Convert to µs.
 			rdReqDelta := float64(d.BlockRdReqs - h.lastBlockRdReqs)
 			if rdReqDelta > 0 {
-				h.rdLatencyUs = float64(d.BlockRdTimes-h.lastBlockRdTime) / rdReqDelta / 1000
+				h.rdLatencyUs = appendCap(h.rdLatencyUs,
+					float64(d.BlockRdTimes-h.lastBlockRdTime)/rdReqDelta/1000, historyWindow)
+			} else {
+				h.rdLatencyUs = appendCap(h.rdLatencyUs, 0, historyWindow)
 			}
 			wrReqDelta := float64(d.BlockWrReqs - h.lastBlockWrReqs)
 			if wrReqDelta > 0 {
-				h.wrLatencyUs = float64(d.BlockWrTimes-h.lastBlockWrTime) / wrReqDelta / 1000
+				h.wrLatencyUs = appendCap(h.wrLatencyUs,
+					float64(d.BlockWrTimes-h.lastBlockWrTime)/wrReqDelta/1000, historyWindow)
+			} else {
+				h.wrLatencyUs = appendCap(h.wrLatencyUs, 0, historyWindow)
 			}
 
 			h.netRx = appendCap(h.netRx, float64(d.NetRxBytes-h.lastNetRx)/dt, historyWindow)
@@ -103,6 +148,12 @@ func (h *domHistory) update(d lv.Domain) {
 		}
 	}
 	h.lastCPUNs = d.CPUTimeNs
+	h.lastCPUUserNs = d.CPUUserNs
+	h.lastCPUSystemNs = d.CPUSystemNs
+	if len(d.VCPUTimes) > 0 {
+		h.lastVCPUTimes = make([]uint64, len(d.VCPUTimes))
+		copy(h.lastVCPUTimes, d.VCPUTimes)
+	}
 	h.lastBlockRd = d.BlockRdBytes
 	h.lastBlockWr = d.BlockWrBytes
 	h.lastBlockRdReqs = d.BlockRdReqs

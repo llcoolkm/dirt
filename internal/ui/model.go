@@ -25,6 +25,7 @@ const (
 	viewMain      viewMode = iota // VM list (default)
 	viewInfo                      // structured per-VM info pane
 	viewDetail                    // raw XML detail of selected VM
+	viewGraphs                    // performance graphs for selected VM
 	viewHelp                      // help modal
 	viewSnapshots                 // snapshots of selected VM
 	viewNetworks                  // libvirt networks
@@ -99,11 +100,16 @@ type Model struct {
 	detailMatches   []int    // line indices matching detailSearch
 	detailMatchIdx  int      // index into detailMatches for current cursor
 
-	// Info view state (structured per-VM panel, Enter/d target).
+	// Info view state (structured per-VM panel, Enter target).
 	infoFor    string
 	info       lv.DomainInfo
 	infoErr    error
 	infoScroll int
+
+	// Graphs view: which sub-tab is active (0=CPU, 1=MEM, 2=DISK, 3=NET).
+	graphsTab   int
+	graphsCache string // pre-rendered body, rebuilt on tick or tab change
+	graphsDirty bool   // true when the cache needs rebuilding
 
 	// Snapshot view state.
 	snapshotsFor  string              // domain name we're showing snapshots for
@@ -427,10 +433,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snap = msg.snap
 		m.updateHistory()
 		m.boundSelection()
+		if m.mode == viewGraphs {
+			m.rebuildGraphsCache()
+		}
 		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case swapMsg:
 		m.swap[msg.name] = msg.info
+		// Record swap used% in the domain's history for the MEM graphs.
+		if msg.info.Available && msg.info.HasSwap && msg.info.TotalKB > 0 {
+			for _, d := range m.snap.Domains {
+				if d.Name == msg.name {
+					if h := m.history[d.UUID]; h != nil {
+						pct := float64(msg.info.UsedKB) / float64(msg.info.TotalKB) * 100
+						h.swapUsedPct = appendCap(h.swapUsedPct, pct, historyWindow)
+					}
+					break
+				}
+			}
+		}
 		return m, nil
 
 	case guestUptimeMsg:
@@ -551,6 +572,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionResultMsg:
 		if msg.err != nil {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
+		} else if msg.action == "pause" {
+			m.flashf("✓ paused %s — press p to resume", msg.name)
 		} else {
 			m.flashf("✓ %s %s", msg.action, msg.name)
 		}
@@ -608,7 +631,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		ret, cmd := m.handleKey(msg)
+		rm := ret.(Model)
+		if rm.graphsDirty && rm.mode == viewGraphs {
+			rm.rebuildGraphsCache()
+		}
+		return rm, cmd
 	}
 	return m, nil
 }
@@ -635,6 +663,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInfoKey(msg)
 	case viewDetail:
 		return m.handleDetailKey(msg)
+	case viewGraphs:
+		return m.handleGraphsKey(msg)
 	case viewSnapshots:
 		return m.handleSnapshotsKey(msg)
 	case viewNetworks:
@@ -766,9 +796,8 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filter = ""
 		return m, nil
 
-	case "enter", "d":
-		// Structured info pane (replaces the old raw-XML detail).
-		// Raw XML is still one keypress away via the "x" binding.
+	case "enter":
+		// Structured info pane. Raw XML is one keypress away via "x".
 		if d, ok := m.currentDomain(); ok {
 			m.mode = viewInfo
 			m.infoFor = d.Name
@@ -804,8 +833,8 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "r":
-		// Reboot now requires confirmation — guest reboots can wedge a host.
+	case "R":
+		// Reboot is destructive — always confirmed.
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "reboot"
@@ -814,14 +843,16 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
-		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
-			return m, actionCmd(m.client, "pause", d.Name, m.client.Suspend)
-		}
-		return m, nil
-
-	case "R":
-		if d, ok := m.currentDomain(); ok && d.State == lv.StatePaused {
-			return m, actionCmd(m.client, "resume", d.Name, m.client.Resume)
+		// Toggle: pause a running VM, resume a paused one.
+		if d, ok := m.currentDomain(); ok {
+			switch d.State {
+			case lv.StateRunning:
+				m.confirming = true
+				m.confirmAction = "pause"
+				m.confirmName = d.Name
+			case lv.StatePaused:
+				return m, actionCmd(m.client, "resume", d.Name, m.client.Resume)
+			}
 		}
 		return m, nil
 
@@ -846,9 +877,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "x":
-		// Open the raw XML detail view. When the VMware-style info view
-		// lands later, Enter / d will point at that and x will remain
-		// the expert path into the underlying libvirt XML.
+		// Open the raw XML detail view.
 		if d, ok := m.currentDomain(); ok {
 			m.mode = viewDetail
 			m.detailFor = d.Name
@@ -1031,6 +1060,8 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, actionCmd(m.client, "reboot", name, m.client.Reboot)
 		case "shutdown":
 			return m, actionCmd(m.client, "shutdown", name, m.client.Shutdown)
+		case "pause":
+			return m, actionCmd(m.client, "pause", name, m.client.Suspend)
 		case "stop-net":
 			return m, networkActionCmd(m.client, "stop network", name, m.client.StopNetwork)
 		case "stop-pool":
@@ -1211,6 +1242,35 @@ func (m *Model) flashf(format string, args ...any) {
 	m.flashUntil = time.Now().Add(3 * time.Second)
 }
 
+// rebuildGraphsCache pre-renders the current graphs tab body so that
+// View() can return it instantly without running ntcharts on every frame.
+func (m *Model) rebuildGraphsCache() {
+	d, ok := m.currentDomain()
+	if !ok {
+		m.graphsCache = ""
+		return
+	}
+	h := m.history[d.UUID]
+	if h == nil {
+		h = &domHistory{}
+	}
+	w := m.contentWidth() - 4
+	if w < 40 {
+		w = 40
+	}
+	switch m.graphsTab {
+	case graphTabCPU:
+		m.graphsCache = renderCPUTab(h, w, m.refreshInterval)
+	case graphTabMEM:
+		m.graphsCache = renderMEMTab(h, w, m.refreshInterval)
+	case graphTabDISK:
+		m.graphsCache = renderDISKTab(h, w, m.refreshInterval)
+	case graphTabNET:
+		m.graphsCache = renderNETTab(h, w, m.refreshInterval)
+	}
+	m.graphsDirty = false
+}
+
 // handleCommandKey handles keypresses while typing a `:` command.
 func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -1274,6 +1334,14 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.mode = viewHosts
 		m.hostsSel = 0
 		return m, loadHostsListCmd(m.client.URI())
+	case "perf", "graph", "graphs":
+		if _, ok := m.currentDomain(); !ok {
+			m.flashf("no domain selected")
+			return m, nil
+		}
+		m.mode = viewGraphs
+		m.graphsDirty = true
+		return m, nil
 	}
 	m.flashf("unknown command: %s", cmd)
 	return m, nil
@@ -1533,7 +1601,7 @@ func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmName = p.Name
 		}
 		return m, nil
-	case "enter", "d":
+	case "enter":
 		if p, ok := m.currentPool(); ok {
 			m.mode = viewVolumes
 			m.volumesFor = p.Name

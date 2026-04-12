@@ -27,6 +27,8 @@ func (m Model) View() string {
 		return m.infoView()
 	case viewDetail:
 		return m.detailView()
+	case viewGraphs:
+		return m.graphsView()
 	case viewSnapshots:
 		return m.snapshotsView()
 	case viewNetworks:
@@ -119,6 +121,7 @@ var paletteCommands = []paletteCommand{
 	{"net", "networks"},
 	{"pool", "pools"},
 	{"host", "hosts"},
+	{"perf", "graphs"},
 	{"help", "help"},
 	{"q", "quit"},
 }
@@ -166,7 +169,8 @@ func (m Model) shortHelp() string {
 		key("s") + " start",
 		key("S") + " stop",
 		key("D") + " kill",
-		key("r") + " reboot",
+		key("R") + " reboot",
+		key("p") + " pause",
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",

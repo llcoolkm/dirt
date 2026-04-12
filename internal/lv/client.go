@@ -117,10 +117,13 @@ type Domain struct {
 	State      State
 	OS         string // friendly OS label parsed from libosinfo metadata, e.g. "Ubuntu 24.04"
 	IP         string // primary IPv4 (DHCP lease, ARP fallback, QGA if available)
-	NrVCPU     uint
-	MaxMemKB   uint64
-	MemoryKB   uint64
-	CPUTimeNs  uint64    // cumulative
+	NrVCPU      uint
+	MaxMemKB    uint64
+	MemoryKB    uint64
+	CPUTimeNs   uint64   // cumulative
+	CPUUserNs   uint64   // cumulative user-space CPU time
+	CPUSystemNs uint64   // cumulative kernel CPU time
+	VCPUTimes   []uint64 // cumulative CPU time per vCPU (ns)
 	BootedAt   time.Time // qemu process start time (zero for remote URIs)
 	Persistent bool
 	Autostart  bool
@@ -232,8 +235,26 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 		}
 
 		// Override CPU time from stats if present (more accurate timing).
-		if s.Cpu != nil && s.Cpu.TimeSet {
-			dom.CPUTimeNs = s.Cpu.Time
+		if s.Cpu != nil {
+			if s.Cpu.TimeSet {
+				dom.CPUTimeNs = s.Cpu.Time
+			}
+			if s.Cpu.UserSet {
+				dom.CPUUserNs = s.Cpu.User
+			}
+			if s.Cpu.SystemSet {
+				dom.CPUSystemNs = s.Cpu.System
+			}
+		}
+
+		// Per-vCPU CPU times — one cumulative nanosecond counter per vCPU.
+		if len(s.Vcpu) > 0 {
+			dom.VCPUTimes = make([]uint64, len(s.Vcpu))
+			for i, v := range s.Vcpu {
+				if v.TimeSet {
+					dom.VCPUTimes[i] = v.Time
+				}
+			}
 		}
 
 		if s.Balloon != nil {

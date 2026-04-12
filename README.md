@@ -22,6 +22,7 @@ I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with
   - **Disk read/write** sparklines + bytes/sec + IOPS + average latency
   - **Network rx/tx** sparklines + bytes/sec + packets/sec + error/drop counts
   - **Uptime** since dirt first observed the VM running
+- **Performance graphs** — tabbed braille time-series charts for CPU, memory, disk I/O, and network (`:perf`), 5-minute rolling window
 - **Snapshot management** — list, create, revert, delete (`:snap`)
 - **Networks view** — start/stop/autostart toggle, DHCP lease counts (`:net`)
 - **Storage pools view** — capacity bars with colour warnings, drill into volumes (`:pool`)
@@ -152,14 +153,13 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `s` | start (if stopped) |
 | `S` | graceful shutdown |
 | `D` | destroy — force off (asks `y` to confirm) |
-| `r` | reboot |
-| `p` | pause |
-| `R` | resume from pause |
+| `R` | reboot (asks `y` to confirm) |
+| `p` | pause / resume (toggle, asks `y` to pause) |
 | `c` | open serial console (`Ctrl-]` to detach) — Linux-friendly |
 | `v` | open graphical console via `virt-viewer` — works for Windows too |
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |
 | `x` | open raw XML detail view |
-| `Enter` / `d` | open detail view |
+| `Enter` | open info view |
 | `U` | undefine — delete a stopped VM (asks `y` to confirm) |
 
 ### Command palette & view switching
@@ -200,7 +200,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 |-----|--------|
 | `j` / `k` | navigate pools or volumes |
 | `s` / `S` | start / stop pool |
-| `Enter` / `d` | drill into pool's volumes |
+| `Enter` | drill into pool's volumes |
 | `R` / `F5` | refresh |
 | `esc` / `q` | back |
 
@@ -218,17 +218,28 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 The hosts list is persisted in `~/.config/dirt/hosts` (plain-text, one `<name> <uri>` per line), seeded on first launch with whichever URI dirt was started against.
 
 ### Info view
-Structured per-VM pane opened with `Enter` / `d` from the main list. Shows identity (UUID, state, OS, IP, autostart, persistent), hardware (vCPUs, CPU mode, live CPU%, memory, balloon breakdown), boot (firmware, boot order, machine type), every disk (target, bus, format, source path, RO/shareable flags, total allocated/capacity), every network interface (MAC, model, source bridge/network, tap device), and graphics channels (SPICE/VNC port, listen).
+Structured per-VM pane opened with `Enter` from the main list or info view. Shows identity (UUID, state, OS, IP, autostart, persistent), hardware (vCPUs, CPU mode, live CPU%, memory, balloon breakdown), boot (firmware, boot order, machine type), every disk (target, bus, format, source path, RO/shareable flags, total allocated/capacity), every network interface (MAC, model, source bridge/network, tap device), and graphics channels (SPICE/VNC port, listen).
 
 | Key | Action |
 |-----|--------|
-| `Enter` / `d` | open info pane |
+| `Enter` | open info pane |
 | `j` / `k` | scroll one line |
 | `PgUp` / `PgDn` | scroll half page |
 | `g` / `G` | jump to top / bottom |
 | `e` | edit XML in `$EDITOR` (`virsh edit`) — the pane refreshes when you return |
 | `x` | jump to raw XML for this VM |
 | `esc` / `q` | close info view |
+
+### Performance graphs
+Tabbed braille time-series charts for the selected VM with four sub-views: **1 CPU** (aggregate, per-vCPU, user/system), **2 MEM** (used%, cache%, swap activity, swap used%), **3 DISK** (throughput, IOPS, latency), **4 NET** (speed, packets). The X-axis shows relative time (-5m, -3m, …). The history window holds 300 samples (5 minutes at the default 1s refresh).
+
+| Key | Action |
+|-----|--------|
+| `:perf` | open via command palette |
+| `p` | open from info view |
+| `1`/`2`/`3`/`4` | jump to CPU / MEM / DISK / NET |
+| `h`/`l` or `←`/`→` | cycle between tabs |
+| `esc` / `q` | back to VM list |
 
 ### XML detail view
 Raw live XML from libvirt. Useful for debugging or when you want the
@@ -349,6 +360,7 @@ dirt/
 │       ├── view.go         root render + status bar + detail view
 │       ├── header.go       host + VM stats pane
 │       ├── list.go         VM table with selection & sort
+│       ├── graphs.go       performance charts (2×2 grid view)
 │       ├── help.go         modal help screen
 │       ├── history.go      rolling sparkline buffer + rate computation
 │       ├── sparkline.go    Unicode block sparklines & multi-segment bars
