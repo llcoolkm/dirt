@@ -179,12 +179,10 @@ func renderVCPUChart(h *domHistory, w int, interval time.Duration) string {
 
 	chart := timeserieslinechart.New(w, chartHeight,
 		timeserieslinechart.WithTimeRange(tMin, now),
-		timeserieslinechart.WithYRange(0, 100),
 		timeserieslinechart.WithXYSteps(5, 4),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
 		timeserieslinechart.WithYLabelFormatter(wrapLabelFmt(pctLabelFmt)),
 	)
-	chart.SetViewYRange(0, 100)
 
 	for i := 0; i < n; i++ {
 		name := fmt.Sprintf("v%d", i)
@@ -192,6 +190,11 @@ func renderVCPUChart(h *domHistory, w int, interval time.Duration) string {
 		chart.SetDataSetStyle(name, lipgloss.NewStyle().Foreground(col))
 		pushSeries(&chart, name, tail(h.vcpuPct[i], cap), now, interval)
 	}
+
+	// Set Y range AFTER pushing to override auto-adjustment.
+	chart.SetYRange(0, 100)
+	chart.SetViewYRange(0, 100)
+
 	chart.DrawBrailleAll()
 	return title + "\n" + chart.View()
 }
@@ -404,7 +407,13 @@ func buildChart(data []float64, w, h int, yMin, yMax float64, fixedY bool,
 	}
 
 	chart := timeserieslinechart.New(w, h, opts...)
+
+	pushSeries(&chart, "", samples, now, interval)
+
+	// Set Y range AFTER pushing data so it overrides any auto-adjustment
+	// ntcharts made during Push (auto-range is on by default).
 	if fixedY {
+		chart.SetYRange(yMin, yMax)
 		chart.SetViewYRange(yMin, yMax)
 	} else {
 		mx := sliceMax(samples)
@@ -416,7 +425,6 @@ func buildChart(data []float64, w, h int, yMin, yMax float64, fixedY bool,
 		chart.SetViewYRange(0, yMax)
 	}
 
-	pushSeries(&chart, "", samples, now, interval)
 	chart.DrawBraille()
 	return chart.View()
 }
@@ -455,6 +463,12 @@ func buildOverlayChart(dataA, dataB []float64, w, h int,
 
 	chart := timeserieslinechart.New(w, h, opts...)
 
+	chart.SetStyle(styleA)
+	chart.SetDataSetStyle("b", styleB)
+	pushSeries(&chart, "", samplesA, now, interval)
+	pushSeries(&chart, "b", samplesB, now, interval)
+
+	// Set Y range AFTER pushing data to override auto-adjustment.
 	mx := sliceMax(samplesA)
 	if m2 := sliceMax(samplesB); m2 > mx {
 		mx = m2
@@ -466,10 +480,6 @@ func buildOverlayChart(dataA, dataB []float64, w, h int,
 	chart.SetYRange(0, yMax)
 	chart.SetViewYRange(0, yMax)
 
-	chart.SetStyle(styleA)
-	chart.SetDataSetStyle("b", styleB)
-	pushSeries(&chart, "", samplesA, now, interval)
-	pushSeries(&chart, "b", samplesB, now, interval)
 	chart.DrawBrailleAll()
 	return chart.View()
 }
