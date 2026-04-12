@@ -2,6 +2,55 @@
 
 All notable changes to dirt are documented here.
 
+## v0.6.0 — 2026-04-12
+
+**Performance graphs, info view, config file, mouse, snapshot trees, keybinding overhaul.**
+
+### Performance graphs (`:perf`)
+- Tabbed braille time-series charts via ntcharts — four sub-views switched with `1`-`4` or `h`/`l`:
+  - **CPU**: aggregate %, per-vCPU breakdown (colour per vCPU), user vs system
+  - **MEM**: used %, cache %, swap in/out activity, swap used % (QGA)
+  - **DISK**: throughput, IOPS, latency (read green / write red, overlaid)
+  - **NET**: speed, packets (rx green / tx red, overlaid)
+- Relative X-axis labels (`-5m`, `-3m`, …, `now`) with minute tick marks
+- Fixed 8-char Y-axis labels for consistent chart alignment
+- Charts cached in `Update()` — tab switching is instant
+- New libvirt stats: `cpu.user`, `cpu.system`, per-vCPU CPU times
+- History window extended from 30 to 300 samples (5 minutes at 1s refresh)
+
+### Info view (`Enter`)
+- VMware-style structured pane: identity, hardware (vCPUs, CPU mode, live CPU%, balloon breakdown), boot (firmware, boot order, machine type), disks, NICs, graphics
+- `e` edits XML via `virsh edit` from within info view; pane refreshes on return
+- `p` jumps to performance graphs; `x` jumps to raw XML
+- Scrollable with `j`/`k`, `g`/`G`, `PgUp`/`PgDn`
+
+### Config file (`~/.config/dirt/config.yaml`)
+- Persistent settings: refresh interval, default sort column + direction, column visibility
+- Seeded with commented defaults on first launch
+- CLI flags override config for the session
+
+### Mouse support
+- Click to select in any list view (main, hosts, networks, pools, snapshots)
+- Scroll wheel navigates up/down
+- Guarded during text input (filter, command palette, snapshot name)
+
+### Snapshot tree
+- Snapshots rendered as an indented tree with box-drawing glyphs instead of a flat list
+- Parent/child relationships visualised; orphans handled gracefully
+
+### Keybinding overhaul
+- Clear separation: `:commands` for view switching, keys for actions, `Enter`/`x` for inspection
+- `d` dropped as alias for `Enter` (the view is "info", not "details")
+- `P` shortcut for perf dropped from main list (use `:perf`)
+- `R` = reboot (was `r`) — dangerous actions get shift keys
+- `p` toggles pause/resume (pause confirms with `y`, resume is instant)
+- `Shift-Tab` cycles views backwards
+- Command palette shows available commands next to `:` prompt, narrowing as you type
+
+### Other
+- Default refresh changed from 2s to 1s
+- Undefine rebound from `x` to `U`; `x` opens raw XML view
+
 ## v0.5.1 — 2026-04-11
 
 **Multi-host support, graphical console, and honest remote metrics.**
