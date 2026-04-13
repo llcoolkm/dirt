@@ -62,6 +62,7 @@ func (m Model) helpView() string {
 				{"D", "destroy — force off (asks y to confirm)"},
 				{"R", "reboot (asks y to confirm)"},
 				{"p", "pause / resume (toggle)"},
+				{"o", "SSH into guest (requires detected IP)"},
 				{"c", "serial console (Ctrl-] to detach) — Linux"},
 				{"v", "graphical console (virt-viewer) — any OS"},
 				{"e", "edit XML in $EDITOR (virsh edit)"},

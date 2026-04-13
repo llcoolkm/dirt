@@ -156,6 +156,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `D` | destroy — force off (asks `y` to confirm) |
 | `R` | reboot (asks `y` to confirm) |
 | `p` | pause / resume (toggle, asks `y` to pause) |
+| `o` | SSH into guest (requires detected IP) |
 | `c` | open serial console (`Ctrl-]` to detach) — Linux-friendly |
 | `v` | open graphical console via `virt-viewer` — works for Windows too |
 | `e` | edit XML in `$EDITOR` (`virsh edit`) |

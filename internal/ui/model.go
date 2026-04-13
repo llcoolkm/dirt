@@ -886,6 +886,13 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "o":
+		// SSH into the guest. Requires a detected IP address.
+		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning && d.IP != "" {
+			return m, m.runSSH(d.IP)
+		}
+		return m, nil
+
 	case "c":
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			return m, m.runConsole(d.Name)
@@ -1958,6 +1965,17 @@ func (m Model) enterView(next viewMode) (tea.Model, tea.Cmd) {
 		return m, loadSnapshotsCmd(m.client, d.Name)
 	}
 	return m, nil
+}
+
+// runSSH suspends the Bubble Tea program and execs `ssh <ip>`. The TUI
+// resumes when the SSH session ends (exit / Ctrl-D / connection close).
+func (m Model) runSSH(ip string) tea.Cmd {
+	return tea.ExecProcess(exec.Command("ssh", ip), func(err error) tea.Msg {
+		if err != nil {
+			return actionResultMsg{action: "ssh", name: ip, err: err}
+		}
+		return actionResultMsg{action: "ssh", name: ip}
+	})
 }
 
 // runConsole suspends the Bubble Tea program, execs `virsh console <name>`,

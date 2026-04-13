@@ -173,6 +173,7 @@ func (m Model) shortHelp() string {
 		key("D") + " kill",
 		key("R") + " reboot",
 		key("p") + " pause",
+		key("o") + " ssh",
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",
