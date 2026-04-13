@@ -31,6 +31,7 @@ const (
 	viewNetworks                  // libvirt networks
 	viewPools                     // storage pools
 	viewVolumes                   // volumes inside selected pool
+	viewLeases                    // DHCP leases of selected network
 	viewHosts                     // list of known libvirt endpoints
 )
 
@@ -123,6 +124,11 @@ type Model struct {
 	networks    []lv.Network
 	networksSel int
 	networksErr error
+
+	// DHCP leases view state (drill-down from networks).
+	leases    []lv.DHCPLease
+	leasesFor string // network name
+	leasesErr error
 
 	// Storage pools view state.
 	pools    []lv.StoragePool
@@ -233,6 +239,7 @@ func (m Model) WithConfig(cfg config.Config) Model {
 	m.sortColumn = sortColumnFromID(cfg.List.SortBy)
 	m.sortDesc = cfg.List.SortReverse
 	m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
+	ApplyTheme(cfg.Theme)
 	return m
 }
 
@@ -290,6 +297,12 @@ type snapshotsLoadedMsg struct {
 type networksLoadedMsg struct {
 	list []lv.Network
 	err  error
+}
+
+type leasesLoadedMsg struct {
+	netName string
+	list    []lv.DHCPLease
+	err     error
 }
 
 type poolsLoadedMsg struct {
@@ -364,6 +377,13 @@ func loadNetworksCmd(c *lv.Client) tea.Cmd {
 	return func() tea.Msg {
 		list, err := c.ListNetworks()
 		return networksLoadedMsg{list: list, err: err}
+	}
+}
+
+func loadLeasesCmd(c *lv.Client, netName string) tea.Cmd {
+	return func() tea.Msg {
+		list, err := c.ListDHCPLeases(netName)
+		return leasesLoadedMsg{netName: netName, list: list, err: err}
 	}
 }
 
@@ -510,6 +530,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.networksSel < 0 {
 			m.networksSel = 0
 		}
+		return m, nil
+
+	case leasesLoadedMsg:
+		if msg.netName != m.leasesFor {
+			return m, nil
+		}
+		m.leases = msg.list
+		m.leasesErr = msg.err
 		return m, nil
 
 	case poolsLoadedMsg:
@@ -673,6 +701,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePoolsKey(msg)
 	case viewVolumes:
 		return m.handleVolumesKey(msg)
+	case viewLeases:
+		return m.handleLeasesKey(msg)
 	case viewHosts:
 		return m.handleHostsKey(msg)
 	}
@@ -1551,8 +1581,34 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, networkActionCmd(m.client, "autostart", n.Name, m.client.ToggleNetworkAutostart)
 		}
 		return m, nil
+	case "enter":
+		// Drill into DHCP leases for the selected network.
+		if n, ok := m.currentNetwork(); ok && n.Active {
+			m.mode = viewLeases
+			m.leasesFor = n.Name
+			m.leases = nil
+			m.leasesErr = nil
+			return m, loadLeasesCmd(m.client, n.Name)
+		}
+		return m, nil
 	case "R", "F5":
 		return m, loadNetworksCmd(m.client)
+	}
+	return m, nil
+}
+
+// handleLeasesKey handles keys while in the DHCP leases view.
+func (m Model) handleLeasesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "?":
+		m.prevMode = m.mode
+		m.mode = viewHelp
+		return m, nil
+	case "esc", "q":
+		m.mode = viewNetworks
+		return m, nil
+	case "R", "F5":
+		return m, loadLeasesCmd(m.client, m.leasesFor)
 	}
 	return m, nil
 }

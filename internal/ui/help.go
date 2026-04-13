@@ -114,6 +114,7 @@ func (m Model) helpView() string {
 				{"j / k", "navigate networks"},
 				{"s / S", "start / stop network"},
 				{"a", "toggle autostart"},
+				{"Enter", "show DHCP leases"},
 				{"R / F5", "refresh list"},
 				{"esc / q", "back to VM list"},
 			},

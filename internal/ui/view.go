@@ -37,6 +37,8 @@ func (m Model) View() string {
 		return m.poolsView()
 	case viewVolumes:
 		return m.volumesView()
+	case viewLeases:
+		return m.leasesView()
 	case viewHosts:
 		return m.hostsView()
 	}

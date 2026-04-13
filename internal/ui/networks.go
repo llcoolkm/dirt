@@ -85,6 +85,52 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 	return " " + row
 }
 
+// leasesView renders the DHCP leases for a selected network.
+func (m Model) leasesView() string {
+	width := m.contentWidth()
+
+	title := headerTitle.Render("leases: ") + headerValue.Render(m.leasesFor)
+
+	header := listHeaderRow.Render(" " + strings.Join([]string{
+		padRight("HOSTNAME", 20),
+		padRight("IP", 18),
+		padRight("MAC", 19),
+		padRight("EXPIRY", 20),
+	}, "  "))
+
+	rows := []string{header}
+	if m.leasesErr != nil {
+		rows = append(rows, "", errorStyle.Render("  error: "+m.leasesErr.Error()))
+	} else if len(m.leases) == 0 {
+		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no active leases"))
+	} else {
+		for _, l := range m.leases {
+			hostname := l.Hostname
+			if hostname == "" {
+				hostname = "—"
+			}
+			expiry := "—"
+			if !l.Expiry.IsZero() {
+				expiry = l.Expiry.Format("2006-01-02 15:04:05")
+			}
+			row := " " + strings.Join([]string{
+				padRight(truncate(hostname, 20), 20),
+				padRight(l.IP, 18),
+				padRight(l.MAC, 19),
+				padRight(expiry, 20),
+			}, "  ")
+			rows = append(rows, row)
+		}
+	}
+
+	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left,
+		append([]string{title, ""}, rows...)...))
+
+	bottom := statusBar.Width(width).Render(" " +
+		key("R") + " refresh  " + key("esc") + " back to networks")
+	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
+}
+
 func networkStatusBar(m Model, width int) string {
 	if m.confirming {
 		label := friendlyConfirmAction(m.confirmAction)
@@ -97,5 +143,6 @@ func networkStatusBar(m Model, width int) string {
 	}
 	return statusBar.Width(width).Render(" " +
 		key("j/k") + " nav  " + key("s") + " start  " + key("S") + " stop  " +
-		key("a") + " autostart  " + key("R") + " refresh  " + key("esc") + " back")
+		key("a") + " autostart  " + key("Enter") + " leases  " +
+		key("R") + " refresh  " + key("esc") + " back")
 }
