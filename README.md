@@ -24,10 +24,11 @@ I've always missed a good TUI for libvirt/kvm, so I vibecoded this together with
   - **Uptime** since dirt first observed the VM running
 - **Performance graphs** — tabbed braille time-series charts for CPU, memory, disk I/O, and network (`:perf`), 5-minute rolling window
 - **Snapshot management** — list, create, revert, delete (`:snap`)
-- **Networks view** — start/stop/autostart toggle, DHCP lease counts (`:net`)
+- **Networks view** — start/stop/autostart toggle, DHCP lease drill-down with hostname/MAC/IP/expiry (`:net`)
 - **Storage pools view** — capacity bars with colour warnings, drill into volumes (`:pool`)
 - **Full domain lifecycle** from single keypresses
 - **Live serial console** via `virsh console` (Tea suspends, virsh runs, Tea resumes on detach)
+- **Colour themes** — default (dark), light, solarized, gruvbox via `config.yaml`
 - **Detail view** with full XML, scrollable, and **incremental `/` search** with match highlights and a position indicator
 - **Vim-style keybindings** throughout
 - **Auto-refresh** every 2 seconds; instant refresh after any action
@@ -192,6 +193,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `j` / `k` | navigate networks |
 | `s` / `S` | start / stop network |
 | `a` | toggle autostart |
+| `Enter` | show DHCP leases (hostname, MAC, IP, expiry) |
 | `R` / `F5` | refresh list |
 | `esc` / `q` | back to VM list |
 
@@ -275,7 +277,7 @@ Persistent user-level preferences. All fields optional; missing ones fall back t
 # Snapshot tick rate. Floor is 200ms.
 refresh: 1s
 
-# Reserved for future theming.
+# Colour theme: default, light, solarized, gruvbox
 theme: default
 
 list:

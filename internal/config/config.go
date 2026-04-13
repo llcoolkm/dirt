@@ -22,8 +22,7 @@ type Config struct {
 	// by the Model regardless of what this says.
 	Refresh time.Duration `yaml:"refresh"`
 
-	// Theme selects a colour palette. Reserved for future use — the
-	// current build hard-codes the palette in styles.go.
+	// Theme selects a colour palette: default, light, solarized, gruvbox.
 	Theme string `yaml:"theme"`
 
 	// List holds VM-table-specific preferences.
@@ -140,7 +139,7 @@ func SaveConfig(cfg Config) error {
 	buf.WriteString("# dirt configuration file\n")
 	buf.WriteString("#\n")
 	buf.WriteString("# refresh: snapshot tick rate (e.g. 1s, 500ms, 2s). Floor is 200ms.\n")
-	buf.WriteString("# theme:   reserved for future theming (not yet honoured).\n")
+	buf.WriteString("# theme:   colour palette — one of: default, light, solarized, gruvbox\n")
 	buf.WriteString("#\n")
 	buf.WriteString("# list.sort_by:      one of name, state, ip, os, vcpu, mem, mem_pct, cpu, uptime\n")
 	buf.WriteString("# list.sort_reverse: flip the natural sort order (A→Z / largest-first)\n")

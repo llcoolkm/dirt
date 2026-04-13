@@ -3,20 +3,21 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 // Color palette — kept terminal-friendly so it survives any color scheme.
+// Colour variables — set by ApplyTheme() from theme.go.
 var (
-	colFG       = lipgloss.AdaptiveColor{Light: "236", Dark: "252"}
-	colMuted    = lipgloss.AdaptiveColor{Light: "244", Dark: "244"}
-	colBorder   = lipgloss.AdaptiveColor{Light: "250", Dark: "238"}
-	colAccent   = lipgloss.Color("13")  // bright magenta
-	colRunning  = lipgloss.Color("10")  // bright green
-	colPaused   = lipgloss.Color("11")  // bright yellow
-	colCrashed  = lipgloss.Color("9")   // bright red
-	colDimmed   = lipgloss.Color("242") // gray
-	colSelectBG = lipgloss.Color("237") // dark gray
-	colSelectFG = lipgloss.Color("15")  // bright white
-	colMemUsed  = lipgloss.Color("10")  // green — actively used
-	colMemCache = lipgloss.Color("11")  // yellow — page cache / buffers
-	colSwap     = lipgloss.Color("13")  // magenta — swap activity
+	colFG       lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "236", Dark: "252"}
+	colMuted    lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "244", Dark: "244"}
+	colBorder   lipgloss.TerminalColor = lipgloss.AdaptiveColor{Light: "250", Dark: "238"}
+	colAccent   lipgloss.TerminalColor = lipgloss.Color("13")
+	colRunning  lipgloss.TerminalColor = lipgloss.Color("10")
+	colPaused   lipgloss.TerminalColor = lipgloss.Color("11")
+	colCrashed  lipgloss.TerminalColor = lipgloss.Color("9")
+	colDimmed   lipgloss.TerminalColor = lipgloss.Color("242")
+	colSelectBG lipgloss.TerminalColor = lipgloss.Color("237")
+	colSelectFG lipgloss.TerminalColor = lipgloss.Color("15")
+	colMemUsed  lipgloss.TerminalColor = lipgloss.Color("10")
+	colMemCache lipgloss.TerminalColor = lipgloss.Color("11")
+	colSwap     lipgloss.TerminalColor = lipgloss.Color("13")
 )
 
 // Box styles.
