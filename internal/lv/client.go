@@ -148,18 +148,76 @@ type Domain struct {
 	BlockRdTimes uint64 // cumulative read time (ns) — for latency
 	BlockWrTimes uint64
 
+	// Per-disk I/O counters. Keyed by target device name (vda, vdb, …).
+	DiskStats map[string]DiskStats
+
 	// Disk inventory — populated via virDomainGetBlockInfo for every disk.
 	NumDisks                 int
 	TotalDiskCapacityBytes   uint64 // sum of virtual sizes (what the guest sees)
 	TotalDiskAllocationBytes uint64 // sum of actual on-host disk usage (sparse-aware)
-	NetRxBytes   uint64
-	NetTxBytes   uint64
-	NetRxPkts    uint64
-	NetTxPkts    uint64
-	NetRxErrs    uint64
-	NetRxDrop    uint64
-	NetTxErrs    uint64
-	NetTxDrop    uint64
+
+	// Per-NIC counters. Keyed by device name (vnet0, macvtap0, …).
+	NICStats map[string]NICStats
+
+	NetRxBytes uint64
+	NetTxBytes uint64
+	NetRxPkts  uint64
+	NetTxPkts  uint64
+	NetRxErrs  uint64
+	NetRxDrop  uint64
+	NetTxErrs  uint64
+	NetTxDrop  uint64
+}
+
+// DiskStats holds per-disk I/O counters (cumulative).
+type DiskStats struct {
+	RdBytes uint64
+	WrBytes uint64
+	RdReqs  uint64
+	WrReqs  uint64
+}
+
+// NICStats holds per-NIC counters (cumulative).
+type NICStats struct {
+	RxBytes uint64
+	TxBytes uint64
+	RxPkts  uint64
+	TxPkts  uint64
+	RxErrs  uint64
+	TxErrs  uint64
+	RxDrop  uint64
+	TxDrop  uint64
+}
+
+// DHCPLease is one DHCP lease entry from a libvirt network.
+type DHCPLease struct {
+	Hostname string
+	MAC      string
+	IP       string
+	Expiry   time.Time
+}
+
+// ListDHCPLeases returns all DHCP leases for a given network.
+func (c *Client) ListDHCPLeases(netName string) ([]DHCPLease, error) {
+	net, err := c.conn.LookupNetworkByName(netName)
+	if err != nil {
+		return nil, fmt.Errorf("lookup network %s: %w", netName, err)
+	}
+	defer func() { _ = net.Free() }()
+	leases, err := net.GetDHCPLeases()
+	if err != nil {
+		return nil, fmt.Errorf("get leases %s: %w", netName, err)
+	}
+	out := make([]DHCPLease, len(leases))
+	for i, l := range leases {
+		out[i] = DHCPLease{
+			Hostname: l.Hostname,
+			MAC:      l.Mac,
+			IP:       l.IPaddr,
+			Expiry:   l.ExpiryTime,
+		}
+	}
+	return out, nil
 }
 
 // Snapshot is one full sample of the host plus all its domains.
@@ -305,7 +363,8 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 		// libvirt reads the qcow2 header directly when no qemu has the file.
 		dom.NumDisks, dom.TotalDiskCapacityBytes, dom.TotalDiskAllocationBytes = diskInventory(d)
 
-		// Sum block stats across all disks.
+		// Block stats — aggregate and per-disk.
+		dom.DiskStats = make(map[string]DiskStats)
 		for _, bs := range s.Block {
 			if bs.RdBytesSet {
 				dom.BlockRdBytes += bs.RdBytes
@@ -325,8 +384,17 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			if bs.WrTimesSet {
 				dom.BlockWrTimes += bs.WrTimes
 			}
+			if bs.NameSet && bs.Name != "" {
+				dom.DiskStats[bs.Name] = DiskStats{
+					RdBytes: bs.RdBytes,
+					WrBytes: bs.WrBytes,
+					RdReqs:  bs.RdReqs,
+					WrReqs:  bs.WrReqs,
+				}
+			}
 		}
-		// Sum net stats across all interfaces.
+		// Net stats — aggregate and per-NIC.
+		dom.NICStats = make(map[string]NICStats)
 		for _, ns := range s.Net {
 			if ns.RxBytesSet {
 				dom.NetRxBytes += ns.RxBytes
@@ -351,6 +419,14 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			}
 			if ns.TxDropSet {
 				dom.NetTxDrop += ns.TxDrop
+			}
+			if ns.NameSet && ns.Name != "" {
+				dom.NICStats[ns.Name] = NICStats{
+					RxBytes: ns.RxBytes, TxBytes: ns.TxBytes,
+					RxPkts: ns.RxPkts, TxPkts: ns.TxPkts,
+					RxErrs: ns.RxErrs, TxErrs: ns.TxErrs,
+					RxDrop: ns.RxDrop, TxDrop: ns.TxDrop,
+				}
 			}
 		}
 

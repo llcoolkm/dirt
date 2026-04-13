@@ -206,6 +206,15 @@ func (m Model) renderInfoBody(info lv.DomainInfo) []string {
 			attrs = append(attrs, "shareable")
 		}
 		head := strings.Join(attrs, " · ")
+		// Append live I/O counters if available.
+		if live != nil {
+			if ds, ok := live.DiskStats[disk.Target]; ok {
+				head += fmt.Sprintf("  ·  r %s / w %s  ·  iops r %d / w %d",
+					formatBytes(float64(ds.RdBytes)),
+					formatBytes(float64(ds.WrBytes)),
+					ds.RdReqs, ds.WrReqs)
+			}
+		}
 		lines = append(lines, "  "+label(disk.Target)+value(head))
 		if disk.Source != "" {
 			lines = append(lines, "  "+label("")+headerLabel.Render(disk.Source))
@@ -237,7 +246,19 @@ func (m Model) renderInfoBody(info lv.DomainInfo) []string {
 		if nic.Target != "" {
 			attrs = append(attrs, "tap="+nic.Target)
 		}
-		lines = append(lines, "  "+macLabel(nic.MAC)+headerLabel.Render(strings.Join(attrs, " · ")))
+		line := "  " + macLabel(nic.MAC) + headerLabel.Render(strings.Join(attrs, " · "))
+		// Append live NIC counters if available (keyed by tap device name).
+		if live != nil && nic.Target != "" {
+			if ns, ok := live.NICStats[nic.Target]; ok {
+				line += headerLabel.Render("  ·  ") + headerValue.Render(
+					fmt.Sprintf("rx %s / tx %s  ·  errs %d  drops %d",
+						formatBytes(float64(ns.RxBytes)),
+						formatBytes(float64(ns.TxBytes)),
+						ns.RxErrs+ns.TxErrs,
+						ns.RxDrop+ns.TxDrop))
+			}
+		}
+		lines = append(lines, line)
 	}
 	lines = append(lines, "")
 
