@@ -11,6 +11,7 @@ import (
 
 // infoLoadedMsg carries the result of loading a VM's structured info.
 type infoLoadedMsg struct {
+	uri  string
 	name string
 	info lv.DomainInfo
 	err  error
@@ -20,9 +21,10 @@ type infoLoadedMsg struct {
 // UI thread. Mirrors loadDetailCmd but returns the structured info
 // instead of the raw XML body.
 func loadInfoCmd(c *lv.Client, name string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		info, err := c.DomainInfo(name)
-		return infoLoadedMsg{name: name, info: info, err: err}
+		return infoLoadedMsg{uri: uri, name: name, info: info, err: err}
 	}
 }
 

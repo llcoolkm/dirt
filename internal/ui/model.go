@@ -261,67 +261,83 @@ func (m Model) WithRefreshInterval(d time.Duration) Model {
 
 type tickMsg time.Time
 
+// Every async message carries the URI of the libvirt client that produced
+// it, so late results from a previous host switch can be identified and
+// discarded in Update() rather than corrupting current state.
+
 type snapshotMsg struct {
+	uri  string
 	snap *lv.Snapshot
 	err  error
 }
 
 type actionResultMsg struct {
+	uri    string
 	action string
 	name   string
 	err    error
 }
 
 type detailLoadedMsg struct {
+	uri  string
 	name string
 	xml  string
 	err  error
 }
 
 type hostLoadedMsg struct {
+	uri  string
 	host lv.HostInfo
 	err  error
 }
 
 type hostStatsLoadedMsg struct {
+	uri   string
 	stats lv.HostStats
 	err   error
 }
 
 type snapshotsLoadedMsg struct {
+	uri    string
 	domain string
 	list   []lv.DomainSnapshot
 	err    error
 }
 
 type networksLoadedMsg struct {
+	uri  string
 	list []lv.Network
 	err  error
 }
 
 type leasesLoadedMsg struct {
+	uri     string
 	netName string
 	list    []lv.DHCPLease
 	err     error
 }
 
 type poolsLoadedMsg struct {
+	uri  string
 	list []lv.StoragePool
 	err  error
 }
 
 type volumesLoadedMsg struct {
+	uri  string
 	pool string
 	list []lv.StorageVolume
 	err  error
 }
 
 type swapMsg struct {
+	uri  string
 	name string
 	info lv.SwapInfo
 }
 
 type guestUptimeMsg struct {
+	uri  string
 	name string
 	info lv.GuestUptime
 }
@@ -333,83 +349,95 @@ func tickCmd(d time.Duration) tea.Cmd {
 }
 
 func loadCmd(c *lv.Client) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		snap, err := c.Snapshot()
-		return snapshotMsg{snap: snap, err: err}
+		return snapshotMsg{uri: uri, snap: snap, err: err}
 	}
 }
 
 func actionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
-		return actionResultMsg{action: action, name: name, err: fn(name)}
+		return actionResultMsg{uri: uri, action: action, name: name, err: fn(name)}
 	}
 }
 
 func loadDetailCmd(c *lv.Client, name string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		x, err := c.XMLDesc(name)
-		return detailLoadedMsg{name: name, xml: x, err: err}
+		return detailLoadedMsg{uri: uri, name: name, xml: x, err: err}
 	}
 }
 
 func loadHostCmd(c *lv.Client) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		h, err := c.Host()
-		return hostLoadedMsg{host: h, err: err}
+		return hostLoadedMsg{uri: uri, host: h, err: err}
 	}
 }
 
 func loadHostStatsCmd(c *lv.Client) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		s, err := c.HostStats()
-		return hostStatsLoadedMsg{stats: s, err: err}
+		return hostStatsLoadedMsg{uri: uri, stats: s, err: err}
 	}
 }
 
 func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListSnapshots(domain)
-		return snapshotsLoadedMsg{domain: domain, list: list, err: err}
+		return snapshotsLoadedMsg{uri: uri, domain: domain, list: list, err: err}
 	}
 }
 
 func loadNetworksCmd(c *lv.Client) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListNetworks()
-		return networksLoadedMsg{list: list, err: err}
+		return networksLoadedMsg{uri: uri, list: list, err: err}
 	}
 }
 
 func loadLeasesCmd(c *lv.Client, netName string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListDHCPLeases(netName)
-		return leasesLoadedMsg{netName: netName, list: list, err: err}
+		return leasesLoadedMsg{uri: uri, netName: netName, list: list, err: err}
 	}
 }
 
 func loadPoolsCmd(c *lv.Client) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListStoragePools()
-		return poolsLoadedMsg{list: list, err: err}
+		return poolsLoadedMsg{uri: uri, list: list, err: err}
 	}
 }
 
 func loadVolumesCmd(c *lv.Client, pool string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListVolumes(pool)
-		return volumesLoadedMsg{pool: pool, list: list, err: err}
+		return volumesLoadedMsg{uri: uri, pool: pool, list: list, err: err}
 	}
 }
 
 func swapCmd(c *lv.Client, name string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
-		return swapMsg{name: name, info: c.Swap(name)}
+		return swapMsg{uri: uri, name: name, info: c.Swap(name)}
 	}
 }
 
 func guestUptimeCmd(c *lv.Client, name string) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
-		return guestUptimeMsg{name: name, info: c.QueryGuestUptime(name)}
+		return guestUptimeMsg{uri: uri, name: name, info: c.QueryGuestUptime(name)}
 	}
 }
 
@@ -429,6 +457,16 @@ func (m Model) Init() tea.Cmd {
 
 // ──────────────────────────── Update ─────────────────────────────────────────
 
+// stale reports whether a message from client uri is still relevant.
+// After a host switch the old client's async results must be dropped so
+// they don't corrupt state for the new connection.
+func (m Model) stale(uri string) bool {
+	if uri == "" || m.client == nil {
+		return false
+	}
+	return uri != m.client.URI()
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -445,6 +483,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case snapshotMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.err = msg.err
 			return m, nil
@@ -459,6 +500,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case swapMsg:
+		if m.stale(msg.uri) || m.snap == nil {
+			return m, nil
+		}
 		m.swap[msg.name] = msg.info
 		// Record swap used% in the domain's history for the MEM graphs.
 		if msg.info.Available && msg.info.HasSwap && msg.info.TotalKB > 0 {
@@ -475,16 +519,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case guestUptimeMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		m.guestUptime[msg.name] = msg.info
 		return m, nil
 
 	case hostLoadedMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		if msg.err == nil {
 			m.host = msg.host
 		}
 		return m, nil
 
 	case hostStatsLoadedMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		if msg.err == nil {
 			// Compute CPU% from delta against the *immediately* previous sample
 			// (which is currently in m.hostStats — we have not overwritten it yet).
@@ -502,8 +555,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case snapshotsLoadedMsg:
-		// Discard stale results that arrive after the user switched VMs.
-		if msg.domain != m.snapshotsFor {
+		// Discard stale results that arrive after the user switched VMs
+		// or hosts.
+		if m.stale(msg.uri) || msg.domain != m.snapshotsFor {
 			return m, nil
 		}
 		// Sort into parent-first DFS order so the selection index
@@ -522,6 +576,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case networksLoadedMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		m.networks = msg.list
 		m.networksErr = msg.err
 		if m.networksSel >= len(m.networks) {
@@ -533,7 +590,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case leasesLoadedMsg:
-		if msg.netName != m.leasesFor {
+		if m.stale(msg.uri) || msg.netName != m.leasesFor {
 			return m, nil
 		}
 		m.leases = msg.list
@@ -541,6 +598,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case poolsLoadedMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		m.pools = msg.list
 		m.poolsErr = msg.err
 		if m.poolsSel >= len(m.pools) {
@@ -552,8 +612,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case volumesLoadedMsg:
-		// Discard stale results that arrive after the user switched pools.
-		if msg.pool != m.volumesFor {
+		// Discard stale results that arrive after the user switched pools
+		// or hosts.
+		if m.stale(msg.uri) || msg.pool != m.volumesFor {
 			return m, nil
 		}
 		m.volumes = msg.list
@@ -598,6 +659,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case actionResultMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
 		} else if msg.action == "pause" {
@@ -629,8 +693,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case detailLoadedMsg:
-		// Discard stale results from a previously-opened detail view.
-		if msg.name != m.detailFor {
+		// Discard stale results from a previously-opened detail view or host.
+		if m.stale(msg.uri) || msg.name != m.detailFor {
 			return m, nil
 		}
 		if msg.err != nil {
@@ -647,8 +711,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case infoLoadedMsg:
-		// Discard results from a previously-opened info view.
-		if msg.name != m.infoFor {
+		// Discard results from a previously-opened info view or host.
+		if m.stale(msg.uri) || msg.name != m.infoFor {
 			return m, nil
 		}
 		m.info = msg.info
@@ -1460,10 +1524,11 @@ func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		domain := m.snapshotsFor
+		uri := m.client.URI()
 		return m, tea.Batch(
 			func() tea.Msg {
 				err := m.client.CreateSnapshot(domain, name, "")
-				return actionResultMsg{action: "create-snap", name: name, err: err}
+				return actionResultMsg{uri: uri, action: "create-snap", name: name, err: err}
 			},
 		)
 	case "backspace":
@@ -1509,16 +1574,17 @@ func (m Model) handleSnapshotConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirming = false
 		m.confirmName = ""
 		m.confirmAction = ""
+		uri := m.client.URI()
 		switch action {
 		case "revert":
 			return m, func() tea.Msg {
 				err := m.client.RevertSnapshot(domain, name)
-				return actionResultMsg{action: "revert", name: name, err: err}
+				return actionResultMsg{uri: uri, action: "revert", name: name, err: err}
 			}
 		case "delete-snap":
 			return m, func() tea.Msg {
 				err := m.client.DeleteSnapshot(domain, name)
-				return actionResultMsg{action: "delete-snap", name: name, err: err}
+				return actionResultMsg{uri: uri, action: "delete-snap", name: name, err: err}
 			}
 		}
 		return m, nil
@@ -1729,8 +1795,9 @@ func (m Model) currentPool() (lv.StoragePool, bool) {
 
 // networkActionCmd is a generic action runner used by network and pool keys.
 func networkActionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd {
+	uri := c.URI()
 	return func() tea.Msg {
-		return actionResultMsg{action: action, name: name, err: fn(name)}
+		return actionResultMsg{uri: uri, action: action, name: name, err: fn(name)}
 	}
 }
 
@@ -1970,35 +2037,38 @@ func (m Model) enterView(next viewMode) (tea.Model, tea.Cmd) {
 // runSSH suspends the Bubble Tea program and execs `ssh <ip>`. The TUI
 // resumes when the SSH session ends (exit / Ctrl-D / connection close).
 func (m Model) runSSH(ip string) tea.Cmd {
+	uri := m.client.URI()
 	return tea.ExecProcess(exec.Command("ssh", ip), func(err error) tea.Msg {
 		if err != nil {
-			return actionResultMsg{action: "ssh", name: ip, err: err}
+			return actionResultMsg{uri: uri, action: "ssh", name: ip, err: err}
 		}
-		return actionResultMsg{action: "ssh", name: ip}
+		return actionResultMsg{uri: uri, action: "ssh", name: ip}
 	})
 }
 
 // runConsole suspends the Bubble Tea program, execs `virsh console <name>`,
 // then resumes the TUI when the user detaches with Ctrl+].
 func (m Model) runConsole(name string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("virsh", "-c", m.client.URI(), "console", name), func(err error) tea.Msg {
+	uri := m.client.URI()
+	return tea.ExecProcess(exec.Command("virsh", "-c", uri, "console", name), func(err error) tea.Msg {
 		if err != nil {
-			return actionResultMsg{action: "console", name: name, err: err}
+			return actionResultMsg{uri: uri, action: "console", name: name, err: err}
 		}
 		// Reset terminal stdin echo just in case virsh left it weird.
 		_ = os.Stdin.Sync()
-		return actionResultMsg{action: "console", name: name}
+		return actionResultMsg{uri: uri, action: "console", name: name}
 	})
 }
 
 // runEdit suspends the Bubble Tea program and execs `virsh edit <name>`,
 // which opens $EDITOR on the live XML. Resumes when the editor exits.
 func (m Model) runEdit(name string) tea.Cmd {
-	return tea.ExecProcess(exec.Command("virsh", "-c", m.client.URI(), "edit", name), func(err error) tea.Msg {
+	uri := m.client.URI()
+	return tea.ExecProcess(exec.Command("virsh", "-c", uri, "edit", name), func(err error) tea.Msg {
 		if err != nil {
-			return actionResultMsg{action: "edit", name: name, err: err}
+			return actionResultMsg{uri: uri, action: "edit", name: name, err: err}
 		}
-		return actionResultMsg{action: "edit", name: name}
+		return actionResultMsg{uri: uri, action: "edit", name: name}
 	})
 }
 
@@ -2019,11 +2089,11 @@ func (m Model) runViewer(name string) tea.Cmd {
 		cmd.Stderr = nil
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		if err := cmd.Start(); err != nil {
-			return actionResultMsg{action: "viewer", name: name, err: err}
+			return actionResultMsg{uri: uri, action: "viewer", name: name, err: err}
 		}
 		// Reap the child in the background so Go's runtime does not
 		// leave it as a zombie when it eventually exits.
 		go func() { _ = cmd.Wait() }()
-		return actionResultMsg{action: "viewer", name: name}
+		return actionResultMsg{uri: uri, action: "viewer", name: name}
 	}
 }
