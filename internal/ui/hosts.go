@@ -135,16 +135,28 @@ func probeHostCmd(h config.Host) tea.Cmd {
 	}
 }
 
-// editHostsFileCmd suspends the TUI and execs $EDITOR on the hosts
-// file. On return, it reloads the file so any edits made in-place take
-// effect. If $EDITOR is unset we fall back to vi, the closest thing to
-// a universal default on a Linux system.
-func editHostsFileCmd() tea.Cmd {
+// editorCommand builds an *exec.Cmd from the user's $EDITOR setting,
+// opening `path`. $EDITOR may include flags — `nvim -f`, `code --wait`,
+// `emacs -nw` — which are split on whitespace and passed as separate
+// argv entries. If $EDITOR is unset, falls back to `vi`.
+func editorCommand(path string) *exec.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vi"
 	}
-	return tea.ExecProcess(exec.Command(editor, config.HostsPath()), func(err error) tea.Msg {
+	fields := strings.Fields(editor)
+	if len(fields) == 0 {
+		fields = []string{"vi"}
+	}
+	args := append(fields[1:], path)
+	return exec.Command(fields[0], args...)
+}
+
+// editHostsFileCmd suspends the TUI and execs $EDITOR on the hosts
+// file. On return, it reloads the file so any edits made in-place take
+// effect.
+func editHostsFileCmd() tea.Cmd {
+	return tea.ExecProcess(editorCommand(config.HostsPath()), func(err error) tea.Msg {
 		// Whether the editor succeeded or not, reload so the view
 		// reflects what's now on disk. A load error surfaces via the
 		// normal hostsLoadedMsg error field.
