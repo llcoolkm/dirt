@@ -382,6 +382,17 @@ func padLeft(s string, w int) string {
 	return strings.Repeat(" ", w-cw) + s
 }
 
+// runeBackspace returns s with its last rune removed, or s unchanged if
+// empty. Byte-wise slicing is unsafe for non-ASCII input (Swedish å, ö,
+// Spanish ñ, etc.) which would be chopped mid-codepoint on backspace.
+func runeBackspace(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:len(r)-1])
+}
+
 // truncate shortens s so that its visible width is ≤ w, replacing the cut
 // portion with "…". Operates on runes, never byte-slicing UTF-8.
 func truncate(s string, w int) string {

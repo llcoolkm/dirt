@@ -1020,9 +1020,7 @@ func (m Model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selected = 0
 		return m, nil
 	case "backspace":
-		if len(m.filter) > 0 {
-			m.filter = m.filter[:len(m.filter)-1]
-		}
+		m.filter = runeBackspace(m.filter)
 		return m, nil
 	default:
 		// Append printable chars only.
@@ -1136,8 +1134,8 @@ func (m Model) handleDetailSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "backspace":
-		if len(m.detailSearch) > 0 {
-			m.detailSearch = m.detailSearch[:len(m.detailSearch)-1]
+		if m.detailSearch != "" {
+			m.detailSearch = runeBackspace(m.detailSearch)
 			m.applyDetailSearch(m.detailSearch)
 		}
 		return m, nil
@@ -1392,9 +1390,7 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = ""
 		return m.execCommand(cmd)
 	case "backspace":
-		if len(m.command) > 0 {
-			m.command = m.command[:len(m.command)-1]
-		}
+		m.command = runeBackspace(m.command)
 		return m, nil
 	default:
 		if len(msg.String()) == 1 {
@@ -1539,9 +1535,9 @@ func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			},
 		)
 	case "backspace":
-		if len(m.snapshotName) > 0 {
-			m.snapshotName = m.snapshotName[:len(m.snapshotName)-1]
-		}
+		// Snapshot names are ASCII-only (isValidSnapshotChar), but use
+		// runeBackspace for consistency with other input handlers.
+		m.snapshotName = runeBackspace(m.snapshotName)
 		return m, nil
 	default:
 		// Only accept characters QEMU's snapshot job IDs allow:

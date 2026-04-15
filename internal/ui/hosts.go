@@ -431,13 +431,9 @@ func (m Model) handleHostInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		switch m.hostInputStage {
 		case 1:
-			if len(m.hostInputName) > 0 {
-				m.hostInputName = m.hostInputName[:len(m.hostInputName)-1]
-			}
+			m.hostInputName = runeBackspace(m.hostInputName)
 		case 2:
-			if len(m.hostInputURI) > 0 {
-				m.hostInputURI = m.hostInputURI[:len(m.hostInputURI)-1]
-			}
+			m.hostInputURI = runeBackspace(m.hostInputURI)
 		}
 		return m, nil
 	default:
