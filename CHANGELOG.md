@@ -2,6 +2,28 @@
 
 All notable changes to dirt are documented here.
 
+## v0.6.1 — 2026-04-15
+
+**Per-disk/NIC stats, DHCP leases, colour themes, SSH.**
+
+### Info view — per-disk and per-NIC live stats
+- Each disk row now shows cumulative read/write bytes and IOPS beside its target name (vda, vdb, …).
+- Each NIC row shows cumulative rx/tx bytes and error/drop counts beside its MAC.
+- Backed by new `DiskStats` and `NICStats` maps on `lv.Domain`, populated from the per-block and per-net arrays already returned by `virConnectGetAllDomainStats`.
+
+### Networks — DHCP lease drill-down
+- Press `Enter` on an active network in `:net` to see every DHCP lease: hostname, MAC, IP, expiry time.
+- New `ListDHCPLeases` method on `lv.Client` wraps libvirt's `Network.GetDHCPLeases`.
+- `esc` returns to the networks list; `R` refreshes.
+
+### Colour themes
+- New `theme` field in `~/.config/dirt/config.yaml` accepts: `default` (dark), `light`, `solarized`, `gruvbox`.
+- All colour variables in `styles.go` are now typed as `lipgloss.TerminalColor` and reassigned by `ApplyTheme()`, which also rebuilds every composite style.
+
+### SSH into guest
+- New `o` (open) key on a running VM with a detected IP suspends dirt and execs `ssh <ip>`. The TUI resumes when the session ends.
+- Mirrors the existing `c` (console) and `v` (virt-viewer) patterns via `tea.ExecProcess`.
+
 ## v0.6.0 — 2026-04-12
 
 **Performance graphs, info view, config file, mouse, snapshot trees, keybinding overhaul.**
