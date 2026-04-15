@@ -84,18 +84,26 @@ func loadHostsListCmd(initialURI string) tea.Cmd {
 
 // probeHostCmd opens a short-lived libvirt connection to the given host
 // in a goroutine, asks for the hostname and running domain count, and
-// sends a hostProbedMsg back. Bounded to ~3 seconds; a stalled SSH does
-// not hold the UI thread because tea.Cmd runs off-thread already.
+// sends a hostProbedMsg back. Bounded to ~3 seconds.
+//
+// Note: cgo-backed lv.New() cannot be interrupted — the goroutine will
+// keep waiting until libvirt itself gives up. If the connection arrives
+// after the timeout, we close the late client in a background goroutine
+// so file descriptors and libvirt handles do not leak while dead
+// qemu+ssh endpoints are repeatedly probed.
 func probeHostCmd(h config.Host) tea.Cmd {
 	return func() tea.Msg {
-		done := make(chan hostProbeStatus, 1)
+		type result struct {
+			client *lv.Client
+			status hostProbeStatus
+		}
+		done := make(chan result, 1)
 		go func() {
 			c, err := lv.New(h.URI)
 			if err != nil {
-				done <- hostProbeStatus{state: probeFailed, err: err}
+				done <- result{status: hostProbeStatus{state: probeFailed, err: err}}
 				return
 			}
-			defer c.Close()
 			status := hostProbeStatus{state: probeOK, hostname: c.Hostname()}
 			if snap, err := c.Snapshot(); err == nil {
 				for _, d := range snap.Domains {
@@ -104,12 +112,21 @@ func probeHostCmd(h config.Host) tea.Cmd {
 					}
 				}
 			}
-			done <- status
+			done <- result{client: c, status: status}
 		}()
 		select {
-		case s := <-done:
-			return hostProbedMsg{name: h.Name, status: s}
+		case r := <-done:
+			if r.client != nil {
+				r.client.Close()
+			}
+			return hostProbedMsg{name: h.Name, status: r.status}
 		case <-time.After(3 * time.Second):
+			// Don't leak if the connection eventually succeeds.
+			go func() {
+				if r := <-done; r.client != nil {
+					r.client.Close()
+				}
+			}()
 			return hostProbedMsg{name: h.Name, status: hostProbeStatus{
 				state: probeFailed,
 				err:   fmt.Errorf("timeout after 3s"),
