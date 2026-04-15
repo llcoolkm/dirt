@@ -832,7 +832,10 @@ func parseDiskPaths(x string) []string {
 func snapshotSizesFromDisks(paths []string) map[string]int64 {
 	sizes := make(map[string]int64)
 	for _, p := range paths {
-		out, err := exec.Command("qemu-img", "info", "-U", "--output=json", p).Output()
+		// `--` ensures qemu-img treats p as a positional argument even if
+		// the disk path begins with `-` (pathological but possible from a
+		// hostile or malformed remote libvirt endpoint).
+		out, err := exec.Command("qemu-img", "info", "-U", "--output=json", "--", p).Output()
 		if err != nil {
 			continue
 		}
