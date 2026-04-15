@@ -3,6 +3,7 @@ package ui
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"sort"
@@ -951,8 +952,14 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "o":
-		// SSH into the guest. Requires a detected IP address.
+		// SSH into the guest. Requires a validated IP address — reject
+		// anything net.ParseIP does not accept, to stop a hostile DHCP
+		// lease / ARP entry from smuggling ssh options.
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning && d.IP != "" {
+			if net.ParseIP(d.IP) == nil {
+				m.flashf("✗ ssh %s: refusing invalid IP %q", d.Name, d.IP)
+				return m, nil
+			}
 			return m, m.runSSH(d.IP)
 		}
 		return m, nil
