@@ -1467,24 +1467,11 @@ func (m Model) handleSnapshotsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
-	case "j", "down":
-		if m.snapshotsSel < len(m.snapshots)-1 {
-			m.snapshotsSel++
-		}
+	}
+	if navSelect(msg.String(), &m.snapshotsSel, len(m.snapshots)) {
 		return m, nil
-	case "k", "up":
-		if m.snapshotsSel > 0 {
-			m.snapshotsSel--
-		}
-		return m, nil
-	case "g", "home":
-		m.snapshotsSel = 0
-		return m, nil
-	case "G", "end":
-		if len(m.snapshots) > 0 {
-			m.snapshotsSel = len(m.snapshots) - 1
-		}
-		return m, nil
+	}
+	switch msg.String() {
 	case "c":
 		// Begin "create" input prompt.
 		m.snapshotInput = true
@@ -1621,24 +1608,11 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
-	case "j", "down":
-		if m.networksSel < len(m.networks)-1 {
-			m.networksSel++
-		}
+	}
+	if navSelect(msg.String(), &m.networksSel, len(m.networks)) {
 		return m, nil
-	case "k", "up":
-		if m.networksSel > 0 {
-			m.networksSel--
-		}
-		return m, nil
-	case "g", "home":
-		m.networksSel = 0
-		return m, nil
-	case "G", "end":
-		if len(m.networks) > 0 {
-			m.networksSel = len(m.networks) - 1
-		}
-		return m, nil
+	}
+	switch msg.String() {
 	case "s":
 		if n, ok := m.currentNetwork(); ok && !n.Active {
 			return m, networkActionCmd(m.client, "start", n.Name, m.client.StartNetwork)
@@ -1702,24 +1676,11 @@ func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
-	case "j", "down":
-		if m.poolsSel < len(m.pools)-1 {
-			m.poolsSel++
-		}
+	}
+	if navSelect(msg.String(), &m.poolsSel, len(m.pools)) {
 		return m, nil
-	case "k", "up":
-		if m.poolsSel > 0 {
-			m.poolsSel--
-		}
-		return m, nil
-	case "g", "home":
-		m.poolsSel = 0
-		return m, nil
-	case "G", "end":
-		if len(m.pools) > 0 {
-			m.poolsSel = len(m.pools) - 1
-		}
-		return m, nil
+	}
+	switch msg.String() {
 	case "s":
 		if p, ok := m.currentPool(); ok && p.State != "running" {
 			return m, networkActionCmd(m.client, "start", p.Name, m.client.StartPool)
@@ -1758,24 +1719,11 @@ func (m Model) handleVolumesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = viewPools
 		return m, nil
-	case "j", "down":
-		if m.volumesSel < len(m.volumes)-1 {
-			m.volumesSel++
-		}
+	}
+	if navSelect(msg.String(), &m.volumesSel, len(m.volumes)) {
 		return m, nil
-	case "k", "up":
-		if m.volumesSel > 0 {
-			m.volumesSel--
-		}
-		return m, nil
-	case "g", "home":
-		m.volumesSel = 0
-		return m, nil
-	case "G", "end":
-		if len(m.volumes) > 0 {
-			m.volumesSel = len(m.volumes) - 1
-		}
-		return m, nil
+	}
+	switch msg.String() {
 	case "R", "F5":
 		return m, loadVolumesCmd(m.client, m.volumesFor)
 	}

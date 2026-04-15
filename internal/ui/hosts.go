@@ -344,24 +344,11 @@ func (m Model) handleHostsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = viewMain
 		return m, nil
-	case "j", "down":
-		if m.hostsSel < len(m.hosts)-1 {
-			m.hostsSel++
-		}
+	}
+	if navSelect(msg.String(), &m.hostsSel, len(m.hosts)) {
 		return m, nil
-	case "k", "up":
-		if m.hostsSel > 0 {
-			m.hostsSel--
-		}
-		return m, nil
-	case "g", "home":
-		m.hostsSel = 0
-		return m, nil
-	case "G", "end":
-		if len(m.hosts) > 0 {
-			m.hostsSel = len(m.hosts) - 1
-		}
-		return m, nil
+	}
+	switch msg.String() {
 	case "enter":
 		if h, ok := m.currentHostEntry(); ok {
 			return m.connectToHost(h.URI, h.Name)

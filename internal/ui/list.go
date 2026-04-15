@@ -393,6 +393,34 @@ func runeBackspace(s string) string {
 	return string(r[:len(r)-1])
 }
 
+// navSelect handles the common j/k/g/G/Home/End/arrow-key selection
+// pattern used by the hosts, snapshots, networks, pools, volumes, and
+// leases views. Mutates *sel in place, returns true if the key was
+// recognised as a navigation key (the caller should then short-circuit).
+func navSelect(key string, sel *int, n int) bool {
+	switch key {
+	case "j", "down":
+		if *sel < n-1 {
+			*sel++
+		}
+		return true
+	case "k", "up":
+		if *sel > 0 {
+			*sel--
+		}
+		return true
+	case "g", "home":
+		*sel = 0
+		return true
+	case "G", "end":
+		if n > 0 {
+			*sel = n - 1
+		}
+		return true
+	}
+	return false
+}
+
 // truncate shortens s so that its visible width is ≤ w, replacing the cut
 // portion with "…". Operates on runes, never byte-slicing UTF-8.
 func truncate(s string, w int) string {
