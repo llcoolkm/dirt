@@ -231,7 +231,7 @@ func (m Model) hostsView() string {
 	if m.hostsErr != nil {
 		rows = append(rows, "", errorStyle.Render("  error: "+m.hostsErr.Error()))
 	} else if len(m.hosts) == 0 {
-		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no hosts defined — add one with :host add <name> <uri>"))
+		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no hosts — press a to add one, or e to edit the hosts file"))
 	} else {
 		for i, h := range m.hosts {
 			rows = append(rows, renderHostRow(h, m.hostsProbe[h.Name], m.client.URI(), i == m.hostsSel))
@@ -308,10 +308,22 @@ func hostsStatusBar(m Model, width int) string {
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
 	}
-	return statusBar.Width(width).Render(" " +
-		key("j/k") + " nav  " + key("Enter") + " connect  " + key("a") + " add  " +
-		key("e") + " edit file  " + key("R") + " re-probe  " +
-		key("D") + " remove  " + key("esc") + " back")
+	// Compact the status bar for narrow terminals — drop the verbose
+	// action names first, then the less-essential keys, before it wraps.
+	full := " " + key("j/k") + " nav  " + key("Enter") + " connect  " +
+		key("a") + " add  " + key("e") + " edit file  " +
+		key("R") + " re-probe  " + key("D") + " remove  " +
+		key("esc") + " back"
+	medium := " " + key("j/k") + " nav  " + key("Enter") + " connect  " +
+		key("a") + " add  " + key("R") + " re-probe  " + key("esc") + " back"
+	short := " " + key("Enter") + " connect  " + key("a") + " add  " + key("esc") + " back"
+	hint := full
+	if width < 80 {
+		hint = short
+	} else if width < 110 {
+		hint = medium
+	}
+	return statusBar.Width(width).Render(hint)
 }
 
 // ──────────────────────────── Key handling ──────────────────────────────────

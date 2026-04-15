@@ -37,7 +37,7 @@ func (m Model) networksView() string {
 	if m.networksErr != nil {
 		rows = append(rows, "", errorStyle.Render("  error: "+m.networksErr.Error()))
 	} else if len(m.networks) == 0 {
-		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no networks defined"))
+		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no networks"))
 	} else {
 		for i, n := range m.networks {
 			rows = append(rows, renderNetworkRow(n, i == m.networksSel))
