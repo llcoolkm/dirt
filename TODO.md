@@ -28,3 +28,7 @@ Ideas discussed but not yet implemented.
 
 - **Domain creation wizard** — too complex for a monitoring TUI; use
   `virt-install` or `virt-manager`.
+- **Model struct sub-struct grouping** — ~300 mechanical edits for
+  marginal clarity gain. The `prefixed*` flat-field convention is
+  clear enough at current scale. Reconsider only if Model grows past
+  ~60 fields.

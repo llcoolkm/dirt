@@ -2,6 +2,24 @@
 
 All notable changes to dirt are documented here.
 
+## v0.6.2 — 2026-04-16
+
+**Code review findings: defence-in-depth, correctness, polish.**
+
+### Security / correctness
+- **Stale async results after host switch** — every async message now carries the URI of the libvirt client that produced it. Update() discards results from the previous client via a new `stale()` helper. Also guards `m.snap == nil` in the swap handler, which could otherwise nil-deref if a late swap reply arrived after `applyConnected` cleared state.
+- **SSH target IP validation** — reject any value `net.ParseIP` cannot parse before `exec.Command("ssh", ip)`. A hostile DHCP lease, ARP entry, or QGA response could previously smuggle an ssh option (e.g. `-oProxyCommand=…`) since ssh treats a leading `-` as a flag.
+- **qemu-img path injection** — add `--` separator before the disk path so a path beginning with `-` (from a hostile or malformed remote libvirt domain XML) cannot be parsed as a flag.
+- **Host probe client leak** — when `probeHostCmd` hit its 3s timeout but `lv.New()` eventually succeeded, the late client was orphaned. Mirror `connectCmd`'s cleanup: close it in a background goroutine.
+
+### UX / polish
+- **Honor EDITOR values with flags** — `nvim -f`, `code --wait`, `emacs -nw` now work correctly. `$EDITOR` is split on whitespace via `strings.Fields` so flags become separate argv entries.
+- **Rune-aware backspace** — byte-slice backspace mangled multi-byte UTF-8 (Swedish å/ö, Spanish ñ) by chopping mid-codepoint. New `runeBackspace()` helper applied to filter, command palette, detail search, snapshot name, and host add inputs.
+- **Hosts view polish** — empty-state no longer references the non-existent `:host add` command (now points at `a` and `e` keys). Status bar compacts for narrow terminals (< 80 cols: essentials only; < 110 cols: medium; otherwise full).
+
+### Refactoring
+- **`navSelect` helper** — extract the identical j/k/g/G/Home/End selection navigation from five view handlers into a single helper in `list.go`. Net reduction: ~60 lines.
+
 ## v0.6.1 — 2026-04-15
 
 **Per-disk/NIC stats, DHCP leases, colour themes, SSH.**
