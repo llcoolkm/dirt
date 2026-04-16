@@ -86,6 +86,9 @@ func main() {
 
 	model := ui.New(client).WithConfig(cfg).WithRefreshInterval(refresh)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Wire the program reference so background goroutines (live
+	// migration progress, etc.) can push messages back into the loop.
+	ui.SetMigrationProgram(p)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "dirt: %v\n", err)
 		os.Exit(1)

@@ -41,6 +41,8 @@ func (m Model) View() string {
 		return m.leasesView()
 	case viewJobs:
 		return m.jobsView()
+	case viewMigrate:
+		return m.migrateView()
 	case viewHosts:
 		return m.hostsView()
 	}
@@ -183,6 +185,7 @@ func (m Model) shortHelp() string {
 		key("R") + " reboot",
 		key("p") + " pause",
 		key("o") + " ssh",
+		key("M") + " migrate",
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",

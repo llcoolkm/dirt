@@ -822,6 +822,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLeasesKey(msg)
 	case viewJobs:
 		return m.handleJobsKey(msg)
+	case viewMigrate:
+		return m.handleMigrateKey(msg)
 	case viewHosts:
 		return m.handleHostsKey(msg)
 	}
@@ -1015,6 +1017,20 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, m.runSSH(d.IP)
+		}
+		return m, nil
+
+	case "M":
+		// Live migrate the selected running VM to another host. Opens
+		// the destination picker.
+		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
+			if len(m.migrateCandidates()) == 0 {
+				m.flashf("no other hosts configured — add one in :host first")
+				return m, nil
+			}
+			m.mode = viewMigrate
+			m.migrateFrom = d.Name
+			m.migrateSel = 0
 		}
 		return m, nil
 
