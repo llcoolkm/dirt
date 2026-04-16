@@ -168,7 +168,7 @@ func startMigrationCmd(c *lv.Client, source string, dest config.Host) tea.Cmd {
 				CopyStorage:  detectCopyStorage(c, dest),
 				MaxDowntimeMs: 300,
 			})
-			migrationProgram.Send(jobDoneMsg{id: jobID, err: err})
+			teaProgram.Send(jobDoneMsg{id: jobID, err: err})
 		}()
 
 		// Progress polling — 1Hz until done.
@@ -193,7 +193,7 @@ func startMigrationCmd(c *lv.Client, source string, dest config.Host) tea.Cmd {
 				if info.Iteration > 5 {
 					phase = fmt.Sprintf("transferring (iter %d)", info.Iteration)
 				}
-				migrationProgram.Send(jobProgressMsg{
+				teaProgram.Send(jobProgressMsg{
 					id:        jobID,
 					phase:     phase,
 					progress:  progress,
@@ -228,15 +228,3 @@ func detectCopyStorage(source *lv.Client, dest config.Host) bool {
 	return false
 }
 
-// ────────────────────────── Program reference ──────────────────────────
-
-// migrationProgram holds a reference to the tea.Program so background
-// goroutines can send messages back into the Update loop. Set by
-// SetMigrationProgram in main.go.
-var migrationProgram *tea.Program
-
-// SetMigrationProgram wires the program reference used by the migration
-// goroutines to Send() messages. Called once from main after tea.NewProgram.
-func SetMigrationProgram(p *tea.Program) {
-	migrationProgram = p
-}

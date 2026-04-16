@@ -770,7 +770,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Prune jobs older than 10 minutes so the map stays bounded.
 		m.pruneOldJobs(10 * time.Minute)
-		return m, nil
+		// Refresh state that the completed job may have changed.
+		cmds := []tea.Cmd{loadCmd(m.client)}
+		switch m.mode {
+		case viewSnapshots:
+			if m.snapshotsFor != "" {
+				cmds = append(cmds, loadSnapshotsCmd(m.client, m.snapshotsFor))
+			}
+		case viewInfo:
+			if m.infoFor != "" {
+				cmds = append(cmds, loadInfoCmd(m.client, m.infoFor))
+			}
+		}
+		return m, tea.Batch(cmds...)
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
@@ -1587,13 +1599,18 @@ func (m Model) handleSnapshotInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		domain := m.snapshotsFor
-		uri := m.client.URI()
-		return m, tea.Batch(
-			func() tea.Msg {
-				err := m.client.CreateSnapshot(domain, name, "")
-				return actionResultMsg{uri: uri, action: "create-snap", name: name, err: err}
-			},
-		)
+		client := m.client
+		job := &Job{
+			ID:       fmt.Sprintf("snap-create-%s-%s-%d", domain, name, time.Now().UnixNano()),
+			Kind:     "snap-create",
+			Target:   domain,
+			Detail:   "@ " + name,
+			Phase:    "creating",
+			Progress: -1,
+		}
+		return m, runDomainJob(job,
+			func() error { return client.CreateSnapshot(domain, name, "") },
+			snapshotProgressPoller(client, domain))
 	case "backspace":
 		// Snapshot names are ASCII-only (isValidSnapshotChar), but use
 		// runeBackspace for consistency with other input handlers.
@@ -1637,18 +1654,32 @@ func (m Model) handleSnapshotConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirming = false
 		m.confirmName = ""
 		m.confirmAction = ""
-		uri := m.client.URI()
+		client := m.client
 		switch action {
 		case "revert":
-			return m, func() tea.Msg {
-				err := m.client.RevertSnapshot(domain, name)
-				return actionResultMsg{uri: uri, action: "revert", name: name, err: err}
+			job := &Job{
+				ID:       fmt.Sprintf("snap-revert-%s-%s-%d", domain, name, time.Now().UnixNano()),
+				Kind:     "snap-revert",
+				Target:   domain,
+				Detail:   "@ " + name,
+				Phase:    "reverting",
+				Progress: -1,
 			}
+			return m, runDomainJob(job,
+				func() error { return client.RevertSnapshot(domain, name) },
+				snapshotProgressPoller(client, domain))
 		case "delete-snap":
-			return m, func() tea.Msg {
-				err := m.client.DeleteSnapshot(domain, name)
-				return actionResultMsg{uri: uri, action: "delete-snap", name: name, err: err}
+			job := &Job{
+				ID:       fmt.Sprintf("snap-delete-%s-%s-%d", domain, name, time.Now().UnixNano()),
+				Kind:     "snap-delete",
+				Target:   domain,
+				Detail:   "@ " + name,
+				Phase:    "deleting",
+				Progress: -1,
 			}
+			return m, runDomainJob(job,
+				func() error { return client.DeleteSnapshot(domain, name) },
+				snapshotProgressPoller(client, domain))
 		}
 		return m, nil
 	default:

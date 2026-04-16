@@ -8,7 +8,20 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/llcoolkm/dirt/internal/lv"
 )
+
+// teaProgram holds a reference to the tea.Program so background
+// goroutines can Send() messages back into the Update loop. Wired
+// once by SetProgram from main after tea.NewProgram.
+var teaProgram *tea.Program
+
+// SetProgram records the tea.Program used by background job
+// goroutines to send progress and completion messages.
+func SetProgram(p *tea.Program) { teaProgram = p }
+
+// SetMigrationProgram is retained for backwards compat; prefer SetProgram.
+func SetMigrationProgram(p *tea.Program) { SetProgram(p) }
 
 // Job is a long-running background operation surfaced in the status bar
 // and the :jobs view. Kind / Target are user-facing labels; Cancel is
@@ -231,6 +244,72 @@ func renderRecentJobRow(j *Job, width int) string {
 	}
 	return "  " + mark + "  " + headerValue.Render(kindCol) + "  " +
 		headerValue.Render(target) + "  " + headerLabel.Render(detail) + "  " + right
+}
+
+// ────────────────────────── Generic job runner ──────────────────────────
+
+// runDomainJob wraps a synchronous domain-level operation (which may
+// take many seconds for large VMs) in a Job. Returns a tea.Cmd that
+// emits jobStartedMsg synchronously and kicks off a goroutine to run
+// `work` and send jobDoneMsg back. Progress is polled via the
+// optional pollFn, which should return (running, progress, phase).
+//
+// Callers pass a pre-built Job so they control the ID, Kind, Target,
+// and Detail fields. The job's StartedAt is set here.
+func runDomainJob(job *Job, work func() error, pollFn func() (running bool, progress float64, phase string)) tea.Cmd {
+	return func() tea.Msg {
+		job.StartedAt = time.Now()
+		id := job.ID
+
+		// Work goroutine.
+		go func() {
+			err := work()
+			if teaProgram != nil {
+				teaProgram.Send(jobDoneMsg{id: id, err: err})
+			}
+		}()
+
+		// Progress poll (optional).
+		if pollFn != nil {
+			go func() {
+				tick := time.NewTicker(1 * time.Second)
+				defer tick.Stop()
+				for range tick.C {
+					running, progress, phase := pollFn()
+					if !running {
+						return
+					}
+					if teaProgram != nil {
+						teaProgram.Send(jobProgressMsg{
+							id:       id,
+							phase:    phase,
+							progress: progress,
+						})
+					}
+				}
+			}()
+		}
+
+		return jobStartedMsg{job: job}
+	}
+}
+
+// snapshotProgressPoller returns a poll function suitable for
+// runDomainJob that asks libvirt for the running job's progress on
+// the named domain. Libvirt reports progress for memory snapshots
+// (save) and for block-commit operations during snapshot delete.
+func snapshotProgressPoller(c *lv.Client, domain string) func() (bool, float64, string) {
+	return func() (bool, float64, string) {
+		running, info, err := c.MigrationProgress(domain)
+		if err != nil || !running {
+			return false, 0, ""
+		}
+		progress := -1.0
+		if info.DataTotal > 0 {
+			progress = float64(info.DataProcessed) / float64(info.DataTotal)
+		}
+		return true, progress, "working"
+	}
 }
 
 // ────────────────────────── Key handler ──────────────────────────
