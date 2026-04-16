@@ -96,6 +96,15 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt + "    " + hint)
 	}
 
+	// Clone name prompt.
+	if m.cloneFrom {
+		prompt := keyHint.Render("clone ") + headerValue.Render(m.cloneSrc) +
+			headerLabel.Render(" → ") + m.cloneName +
+			lipgloss.NewStyle().Foreground(colAccent).Render("█") +
+			headerLabel.Render("   (enter to clone, esc to cancel)")
+		return statusBar.Width(width).Render(" " + prompt)
+	}
+
 	// Confirm dialog takes precedence after filter.
 	if m.confirming {
 		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s %s? ", m.confirmAction, m.confirmName)) +
@@ -186,6 +195,7 @@ func (m Model) shortHelp() string {
 		key("p") + " pause",
 		key("o") + " ssh",
 		key("M") + " migrate",
+		key("C") + " clone",
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",

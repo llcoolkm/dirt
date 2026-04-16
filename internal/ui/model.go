@@ -187,6 +187,12 @@ type Model struct {
 	// but we need our own selection index for the modal overlay.
 	migrateFrom string // source VM name (running domain)
 	migrateSel  int    // index into m.hosts (destination)
+
+	// Clone prompt state: user pressed `C` on a stopped VM and is
+	// typing the new name in the status bar.
+	cloneFrom bool   // true while prompting
+	cloneSrc  string // source VM name
+	cloneName string // typed new name
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -842,6 +848,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.confirming:
 		return m.handleConfirmKey(msg)
+	case m.cloneFrom:
+		return m.handleCloneKey(msg)
 	case m.filtering:
 		return m.handleFilterKey(msg)
 	case m.commanding:
@@ -1043,6 +1051,18 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = viewMigrate
 			m.migrateFrom = d.Name
 			m.migrateSel = 0
+		}
+		return m, nil
+
+	case "C":
+		// Clone the selected stopped VM. Opens an inline name prompt
+		// in the status bar; Enter kicks off the background job.
+		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
+			m.cloneFrom = true
+			m.cloneSrc = d.Name
+			m.cloneName = d.Name + "-clone"
+		} else {
+			m.flashf("clone only works on stopped VMs")
 		}
 		return m, nil
 
@@ -1480,6 +1500,57 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// handleCloneKey runs the inline rename prompt triggered by C on a
+// stopped VM. Enter kicks off the clone job; esc cancels.
+func (m Model) handleCloneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.cloneFrom = false
+		m.cloneSrc = ""
+		m.cloneName = ""
+		return m, nil
+	case "enter":
+		name := strings.TrimSpace(m.cloneName)
+		src := m.cloneSrc
+		m.cloneFrom = false
+		m.cloneSrc = ""
+		m.cloneName = ""
+		if name == "" || name == src {
+			m.flashf("✗ clone: new name must differ from source")
+			return m, nil
+		}
+		client := m.client
+		job := &Job{
+			ID:       fmt.Sprintf("clone-%s-%s-%d", src, name, time.Now().UnixNano()),
+			Kind:     "clone",
+			Target:   src,
+			Detail:   "→ " + name,
+			Phase:    "copying disks",
+			Progress: -1,
+		}
+		return m, runDomainJob(job,
+			func() error { return client.Clone(src, name) },
+			nil) // virt-clone doesn't expose progress via the libvirt job API
+	case "backspace":
+		m.cloneName = runeBackspace(m.cloneName)
+		return m, nil
+	default:
+		// Accept the same character set as snapshot names — safe for
+		// libvirt domain names. Plus underscore/hyphen/dot.
+		s := msg.String()
+		if len(s) == 1 && isValidDomainNameChar(s[0]) {
+			m.cloneName += s
+		}
+		return m, nil
+	}
+}
+
+// isValidDomainNameChar reports whether b is allowed in a libvirt
+// domain name. Matches the same safe grammar as snapshot names.
+func isValidDomainNameChar(b byte) bool {
+	return isValidSnapshotChar(b)
 }
 
 // execCommand interprets a `:` command and switches view mode.
@@ -1993,7 +2064,7 @@ func (m Model) maybeFetchGuestUptime() tea.Cmd {
 // mid-word.
 func (m Model) isTextInputting() bool {
 	return m.commanding || m.filtering || m.detailSearching ||
-		m.snapshotInput || m.hostInputStage > 0
+		m.snapshotInput || m.hostInputStage > 0 || m.cloneFrom
 }
 
 // cycleMode advances to the next top-level view: main → hosts →

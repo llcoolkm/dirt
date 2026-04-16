@@ -64,6 +64,7 @@ func (m Model) helpView() string {
 				{"p", "pause / resume (toggle)"},
 				{"o", "SSH into guest (requires detected IP)"},
 				{"M", "live migrate to another host (asks for destination)"},
+				{"C", "clone a stopped VM (asks for new name)"},
 				{"c", "serial console (Ctrl-] to detach) — Linux"},
 				{"v", "graphical console (virt-viewer) — any OS"},
 				{"e", "edit XML in $EDITOR (virsh edit)"},
