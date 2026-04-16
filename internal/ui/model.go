@@ -34,6 +34,8 @@ const (
 	viewVolumes                   // volumes inside selected pool
 	viewLeases                    // DHCP leases of selected network
 	viewHosts                     // list of known libvirt endpoints
+	viewJobs                      // active + recent background jobs
+	viewMigrate                   // destination picker for live migration
 )
 
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
@@ -175,6 +177,16 @@ type Model struct {
 	// config.yaml column-visibility preferences. Always a subset of
 	// vmColumns; required columns (NAME, STATE, IP) are always present.
 	activeColumns []column
+
+	// Background jobs (live migration, slow snapshot ops, …). Keyed by
+	// job ID. Active jobs appear in the bottom status bar; :jobs shows
+	// active + recent history.
+	jobs map[string]*Job
+
+	// Migration destination picker state — the hosts list is reused,
+	// but we need our own selection index for the modal overlay.
+	migrateFrom string // source VM name (running domain)
+	migrateSel  int    // index into m.hosts (destination)
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -227,6 +239,7 @@ func New(c *lv.Client) Model {
 		swap:            make(map[string]lv.SwapInfo),
 		guestUptime:     make(map[string]lv.GuestUptime),
 		hostsProbe:      make(map[string]hostProbeStatus),
+		jobs:            make(map[string]*Job),
 		sortColumn:      sortByState, // running first by default
 		activeColumns:   vmColumns,
 	}
@@ -720,6 +733,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.infoErr = msg.err
 		return m, nil
 
+	case jobStartedMsg:
+		if m.jobs == nil {
+			m.jobs = make(map[string]*Job)
+		}
+		m.jobs[msg.job.ID] = msg.job
+		return m, nil
+
+	case jobProgressMsg:
+		if j, ok := m.jobs[msg.id]; ok && j.Running() {
+			if msg.phase != "" {
+				j.Phase = msg.phase
+			}
+			if msg.progress >= 0 {
+				j.Progress = msg.progress
+			}
+			if msg.dataTotal > 0 {
+				j.DataTotal = msg.dataTotal
+			}
+			if msg.dataDone > 0 {
+				j.DataDone = msg.dataDone
+			}
+		}
+		return m, nil
+
+	case jobDoneMsg:
+		if j, ok := m.jobs[msg.id]; ok {
+			j.FinishedAt = time.Now()
+			j.Err = msg.err
+			j.Cancel = nil
+			if msg.err != nil {
+				m.flashf("✗ %s %s: %v", j.Kind, j.Target, msg.err)
+			} else {
+				m.flashf("✓ %s %s", j.Kind, j.Target)
+			}
+		}
+		// Prune jobs older than 10 minutes so the map stays bounded.
+		m.pruneOldJobs(10 * time.Minute)
+		return m, nil
+
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 
@@ -768,6 +820,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleVolumesKey(msg)
 	case viewLeases:
 		return m.handleLeasesKey(msg)
+	case viewJobs:
+		return m.handleJobsKey(msg)
 	case viewHosts:
 		return m.handleHostsKey(msg)
 	}
@@ -1445,6 +1499,9 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		}
 		m.mode = viewGraphs
 		m.graphsDirty = true
+		return m, nil
+	case "jobs", "job":
+		m.mode = viewJobs
 		return m, nil
 	}
 	m.flashf("unknown command: %s", cmd)

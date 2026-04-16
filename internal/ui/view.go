@@ -39,6 +39,8 @@ func (m Model) View() string {
 		return m.volumesView()
 	case viewLeases:
 		return m.leasesView()
+	case viewJobs:
+		return m.jobsView()
 	case viewHosts:
 		return m.hostsView()
 	}
@@ -104,6 +106,12 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
 	}
 
+	// Active background jobs take precedence over the key-hint line
+	// so they're always visible. :jobs gives the full view.
+	if seg := m.jobsStatusSegment(width - 2); seg != "" {
+		return statusBar.Width(width).Render(" " + seg)
+	}
+
 	return statusBar.Width(width).Render(" " + m.shortHelp())
 }
 
@@ -124,6 +132,7 @@ var paletteCommands = []paletteCommand{
 	{"pool", "pools"},
 	{"host", "hosts"},
 	{"perf", "graphs"},
+	{"jobs", "background jobs"},
 	{"help", "help"},
 	{"q", "quit"},
 }

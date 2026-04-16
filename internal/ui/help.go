@@ -81,6 +81,7 @@ func (m Model) helpView() string {
 				{":pool", "storage pools"},
 				{":host", "list libvirt endpoints"},
 				{":perf", "performance graphs"},
+				{":jobs", "background jobs (migrations, slow snapshots)"},
 				{":vm", "back to VM list"},
 				{":help", "this help screen"},
 				{":q", "quit"},
