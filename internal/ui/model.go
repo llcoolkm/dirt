@@ -199,6 +199,15 @@ type Model struct {
 	volInputStage int
 	volInputName  string
 	volInputSize  string
+
+	// Hot-plug attach prompt. Stage 0 = idle, 1 = pick device type
+	// (d=disk, n=nic), 2 = typing device-specific param (path/target
+	// for disk, network name for NIC).
+	attachDomain string
+	attachStage  int // 0=idle, 1=pick type, 2=param1, 3=param2
+	attachType   string // "disk" or "nic"
+	attachParam1 string // disk: source path, nic: network name
+	attachParam2 string // disk: target device (vdb/vdc)
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -860,6 +869,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	case m.cloneFrom:
 		return m.handleCloneKey(msg)
+	case m.attachStage > 0:
+		return m.handleAttachKey(msg)
 	case m.filtering:
 		return m.handleFilterKey(msg)
 	case m.commanding:
@@ -1073,6 +1084,16 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cloneName = d.Name + "-clone"
 		} else {
 			m.flashf("clone only works on stopped VMs")
+		}
+		return m, nil
+
+	case "A":
+		// Hot-plug a device to the selected running VM.
+		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
+			m.attachDomain = d.Name
+			m.attachStage = 1
+		} else {
+			m.flashf("attach only works on running VMs")
 		}
 		return m, nil
 
@@ -1571,6 +1592,95 @@ func (m Model) handleCloneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // domain name. Matches the same safe grammar as snapshot names.
 func isValidDomainNameChar(b byte) bool {
 	return isValidSnapshotChar(b)
+}
+
+// handleAttachKey runs the multi-stage attach prompt: pick device
+// type → provide device-specific params → execute.
+func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.attachStage {
+	case 1:
+		// Pick device type: d for disk, n for NIC.
+		switch msg.String() {
+		case "esc":
+			m.attachStage = 0
+			return m, nil
+		case "d":
+			m.attachType = "disk"
+			m.attachStage = 2
+			m.attachParam1 = "/var/lib/libvirt/images/"
+			return m, nil
+		case "n":
+			m.attachType = "nic"
+			m.attachStage = 2
+			m.attachParam1 = "default"
+			return m, nil
+		}
+		return m, nil
+	case 2:
+		switch msg.String() {
+		case "esc":
+			m.attachStage = 0
+			return m, nil
+		case "enter":
+			if m.attachType == "disk" {
+				// Move to stage 3 to pick the target device name.
+				m.attachStage = 3
+				m.attachParam2 = "vdb"
+				return m, nil
+			}
+			// NIC: execute now — only needs the network name.
+			network := strings.TrimSpace(m.attachParam1)
+			if network == "" {
+				m.flashf("✗ network name required")
+				return m, nil
+			}
+			domain := m.attachDomain
+			client := m.client
+			m.attachStage = 0
+			return m, func() tea.Msg {
+				err := client.AttachNIC(domain, network)
+				return actionResultMsg{uri: client.URI(), action: "attach nic", name: domain, err: err}
+			}
+		case "backspace":
+			m.attachParam1 = runeBackspace(m.attachParam1)
+			return m, nil
+		default:
+			if len(msg.String()) == 1 {
+				m.attachParam1 += msg.String()
+			}
+			return m, nil
+		}
+	case 3:
+		// Disk: target device (vdb, vdc, …)
+		switch msg.String() {
+		case "esc":
+			m.attachStage = 0
+			return m, nil
+		case "enter":
+			path := strings.TrimSpace(m.attachParam1)
+			target := strings.TrimSpace(m.attachParam2)
+			if path == "" || target == "" {
+				m.flashf("✗ both path and target required")
+				return m, nil
+			}
+			domain := m.attachDomain
+			client := m.client
+			m.attachStage = 0
+			return m, func() tea.Msg {
+				err := client.AttachDisk(domain, path, target)
+				return actionResultMsg{uri: client.URI(), action: "attach disk", name: domain, err: err}
+			}
+		case "backspace":
+			m.attachParam2 = runeBackspace(m.attachParam2)
+			return m, nil
+		default:
+			if len(msg.String()) == 1 {
+				m.attachParam2 += msg.String()
+			}
+			return m, nil
+		}
+	}
+	return m, nil
 }
 
 // execCommand interprets a `:` command and switches view mode.
@@ -2215,7 +2325,7 @@ func (m Model) maybeFetchGuestUptime() tea.Cmd {
 func (m Model) isTextInputting() bool {
 	return m.commanding || m.filtering || m.detailSearching ||
 		m.snapshotInput || m.hostInputStage > 0 || m.cloneFrom ||
-		m.volInputStage > 0
+		m.volInputStage > 0 || m.attachStage > 0
 }
 
 // cycleMode advances to the next top-level view: main → hosts →

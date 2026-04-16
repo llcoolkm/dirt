@@ -96,6 +96,31 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt + "    " + hint)
 	}
 
+	// Attach device prompt.
+	if m.attachStage > 0 {
+		var prompt string
+		cursor := lipgloss.NewStyle().Foreground(colAccent).Render("█")
+		switch m.attachStage {
+		case 1:
+			prompt = keyHint.Render("attach to "+m.attachDomain+": ") +
+				key("d") + headerLabel.Render("isk  ") +
+				key("n") + headerLabel.Render("ic  ") +
+				key("esc") + headerLabel.Render(" cancel")
+		case 2:
+			if m.attachType == "disk" {
+				prompt = keyHint.Render("disk path: ") + m.attachParam1 + cursor +
+					headerLabel.Render("   (enter → target, esc cancel)")
+			} else {
+				prompt = keyHint.Render("network: ") + m.attachParam1 + cursor +
+					headerLabel.Render("   (enter to attach, esc cancel)")
+			}
+		case 3:
+			prompt = keyHint.Render("target: ") + m.attachParam2 + cursor +
+				headerLabel.Render("   (e.g. vdb, vdc — enter to attach, esc cancel)")
+		}
+		return statusBar.Width(width).Render(" " + prompt)
+	}
+
 	// Clone name prompt.
 	if m.cloneFrom {
 		prompt := keyHint.Render("clone ") + headerValue.Render(m.cloneSrc) +
@@ -196,6 +221,7 @@ func (m Model) shortHelp() string {
 		key("o") + " ssh",
 		key("M") + " migrate",
 		key("C") + " clone",
+		key("A") + " attach",
 		key("c") + " console",
 		key("v") + " viewer",
 		key("e") + " edit",
