@@ -1144,6 +1144,46 @@ func (c *Client) ListVolumes(poolName string) ([]StorageVolume, error) {
 	return out, err
 }
 
+// CreateVolume creates a qcow2 volume of the given capacity (in bytes)
+// in the named pool. Allocation is sparse (start at 0); the file grows
+// as the guest writes.
+func (c *Client) CreateVolume(poolName, volName string, capacityBytes uint64) error {
+	if volName == "" {
+		return fmt.Errorf("volume name cannot be empty")
+	}
+	if capacityBytes == 0 {
+		return fmt.Errorf("volume capacity cannot be zero")
+	}
+	return c.withPool(poolName, func(p *libvirt.StoragePool) error {
+		xml := fmt.Sprintf(`<volume type='file'>
+  <name>%s</name>
+  <capacity unit='bytes'>%d</capacity>
+  <allocation unit='bytes'>0</allocation>
+  <target>
+    <format type='qcow2'/>
+  </target>
+</volume>`, xmlEscape(volName), capacityBytes)
+		v, err := p.StorageVolCreateXML(xml, 0)
+		if err != nil {
+			return err
+		}
+		_ = v.Free()
+		return nil
+	})
+}
+
+// DeleteVolume removes the named volume from the named pool.
+func (c *Client) DeleteVolume(poolName, volName string) error {
+	return c.withPool(poolName, func(p *libvirt.StoragePool) error {
+		v, err := p.LookupStorageVolByName(volName)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = v.Free() }()
+		return v.Delete(0)
+	})
+}
+
 func volTypeString(t libvirt.StorageVolType) string {
 	switch t {
 	case libvirt.STORAGE_VOL_FILE:

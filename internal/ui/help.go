@@ -124,13 +124,23 @@ func (m Model) helpView() string {
 			},
 		},
 		{
-			title: "Pools / Volumes view",
+			title: "Pools view",
 			rows: []helpRow{
-				{"j / k", "navigate pools/volumes"},
+				{"j / k", "navigate pools"},
 				{"s / S", "start / stop pool"},
 				{"Enter", "drill into pool's volumes"},
 				{"R / F5", "refresh"},
 				{"esc / q", "back"},
+			},
+		},
+		{
+			title: "Volumes view",
+			rows: []helpRow{
+				{"j / k", "navigate volumes"},
+				{"c", "create new volume (name + size prompt)"},
+				{"D", "delete volume (asks y)"},
+				{"R / F5", "refresh"},
+				{"esc / q", "back to pools"},
 			},
 		},
 		{

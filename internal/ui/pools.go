@@ -160,9 +160,30 @@ func (m Model) volumesView() string {
 	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left,
 		append([]string{title, ""}, rows...)...))
 
-	bottom := statusBar.Width(width).Render(" " +
-		key("j/k") + " nav  " + key("R") + " refresh  " + key("esc") + " back")
+	bottom := volumeStatusBar(m, width)
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
+}
+
+func volumeStatusBar(m Model, width int) string {
+	cursor := lipgloss.NewStyle().Foreground(colAccent).Render("█")
+	if m.volInputStage == 1 {
+		prompt := keyHint.Render("name: ") + m.volInputName + cursor +
+			headerLabel.Render("   (enter → size, esc to cancel)")
+		return statusBar.Width(width).Render(" " + prompt)
+	}
+	if m.volInputStage == 2 {
+		prompt := keyHint.Render("size: ") + m.volInputSize + cursor +
+			headerLabel.Render("   (e.g. 10G, 500M — enter to create, esc to cancel)")
+		return statusBar.Width(width).Render(" " + prompt)
+	}
+	if m.confirming {
+		msg := errorStyle.Render(fmt.Sprintf(" ⚠ delete volume “%s”? ", m.confirmName)) +
+			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
+		return statusBar.Width(width).Render(msg)
+	}
+	return statusBar.Width(width).Render(" " +
+		key("j/k") + " nav  " + key("c") + " create  " + key("D") + " delete  " +
+		key("R") + " refresh  " + key("esc") + " back")
 }
 
 func renderVolumeRow(v lv.StorageVolume, selected bool) string {

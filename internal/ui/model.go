@@ -193,6 +193,12 @@ type Model struct {
 	cloneFrom bool   // true while prompting
 	cloneSrc  string // source VM name
 	cloneName string // typed new name
+
+	// Volume create prompt state (inside the volumes drill-down).
+	// Stage 0 = idle, 1 = typing name, 2 = typing size.
+	volInputStage int
+	volInputName  string
+	volInputSize  string
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -708,6 +714,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewInfo:
 			if m.infoFor != "" {
 				cmds = append(cmds, loadInfoCmd(m.client, m.infoFor))
+			}
+		case viewLogs:
+			if m.logsFor != "" {
+				cmds = append(cmds, loadLogsCmd(m.client, m.logsFor))
 			}
 		}
 		return m, tea.Batch(cmds...)
@@ -1274,6 +1284,16 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, networkActionCmd(m.client, "stop network", name, m.client.StopNetwork)
 		case "stop-pool":
 			return m, networkActionCmd(m.client, "stop pool", name, m.client.StopPool)
+		case "delete-vol":
+			pool := m.volumesFor
+			client := m.client
+			return m, tea.Batch(
+				func() tea.Msg {
+					err := client.DeleteVolume(pool, name)
+					return actionResultMsg{uri: client.URI(), action: "delete-vol", name: name, err: err}
+				},
+				loadVolumesCmd(client, pool),
+			)
 		}
 		return m, nil
 	default:
@@ -1886,6 +1906,13 @@ func (m Model) handlePoolsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleVolumesKey handles keys while in the volumes drill-down.
 func (m Model) handleVolumesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Sub-states first.
+	if m.volInputStage > 0 {
+		return m.handleVolInputKey(msg)
+	}
+	if m.confirming {
+		return m.handleConfirmKey(msg)
+	}
 	switch msg.String() {
 	case "?":
 		m.prevMode = m.mode
@@ -1899,10 +1926,126 @@ func (m Model) handleVolumesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg.String() {
+	case "c":
+		// Create a new volume in this pool.
+		m.volInputStage = 1
+		m.volInputName = ""
+		m.volInputSize = "10G"
+		return m, nil
+	case "D":
+		// Delete the selected volume.
+		if v, ok := m.currentVolume(); ok {
+			m.confirming = true
+			m.confirmAction = "delete-vol"
+			m.confirmName = v.Name
+		}
+		return m, nil
 	case "R", "F5":
 		return m, loadVolumesCmd(m.client, m.volumesFor)
 	}
 	return m, nil
+}
+
+// handleVolInputKey runs the two-stage name+size prompt for creating a
+// new volume in the current pool.
+func (m Model) handleVolInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.volInputStage = 0
+		m.volInputName = ""
+		m.volInputSize = ""
+		return m, nil
+	case "enter":
+		switch m.volInputStage {
+		case 1:
+			name := strings.TrimSpace(m.volInputName)
+			if name == "" {
+				m.flashf("✗ name cannot be empty")
+				return m, nil
+			}
+			m.volInputStage = 2
+			return m, nil
+		case 2:
+			size, err := parseHumanSize(m.volInputSize)
+			if err != nil {
+				m.flashf("✗ %v", err)
+				return m, nil
+			}
+			name := strings.TrimSpace(m.volInputName)
+			pool := m.volumesFor
+			client := m.client
+			m.volInputStage = 0
+			m.volInputName = ""
+			m.volInputSize = ""
+			job := &Job{
+				ID:       fmt.Sprintf("vol-create-%s-%s-%d", pool, name, time.Now().UnixNano()),
+				Kind:     "vol-create",
+				Target:   name,
+				Detail:   fmt.Sprintf("@ %s · %s", pool, formatBytes(float64(size))),
+				Phase:    "allocating",
+				Progress: -1,
+			}
+			return m, tea.Batch(
+				runDomainJob(job,
+					func() error { return client.CreateVolume(pool, name, size) },
+					nil),
+				loadVolumesCmd(client, pool),
+			)
+		}
+	case "backspace":
+		switch m.volInputStage {
+		case 1:
+			m.volInputName = runeBackspace(m.volInputName)
+		case 2:
+			m.volInputSize = runeBackspace(m.volInputSize)
+		}
+		return m, nil
+	default:
+		s := msg.String()
+		if len(s) == 1 {
+			switch m.volInputStage {
+			case 1:
+				m.volInputName += s
+			case 2:
+				m.volInputSize += s
+			}
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+// parseHumanSize accepts "10G", "500M", "1.5T", "4096" (bytes) and
+// returns the value in bytes.
+func parseHumanSize(s string) (uint64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("size cannot be empty")
+	}
+	mult := uint64(1)
+	last := s[len(s)-1]
+	switch last {
+	case 'K', 'k':
+		mult = 1024
+		s = s[:len(s)-1]
+	case 'M', 'm':
+		mult = 1024 * 1024
+		s = s[:len(s)-1]
+	case 'G', 'g':
+		mult = 1024 * 1024 * 1024
+		s = s[:len(s)-1]
+	case 'T', 't':
+		mult = 1024 * 1024 * 1024 * 1024
+		s = s[:len(s)-1]
+	}
+	var num float64
+	if _, err := fmt.Sscanf(s, "%f", &num); err != nil {
+		return 0, fmt.Errorf("invalid size %q", s)
+	}
+	if num <= 0 {
+		return 0, fmt.Errorf("size must be positive")
+	}
+	return uint64(num * float64(mult)), nil
 }
 
 func (m Model) currentNetwork() (lv.Network, bool) {
@@ -1917,6 +2060,13 @@ func (m Model) currentPool() (lv.StoragePool, bool) {
 		return lv.StoragePool{}, false
 	}
 	return m.pools[m.poolsSel], true
+}
+
+func (m Model) currentVolume() (lv.StorageVolume, bool) {
+	if m.volumesSel < 0 || m.volumesSel >= len(m.volumes) {
+		return lv.StorageVolume{}, false
+	}
+	return m.volumes[m.volumesSel], true
 }
 
 // networkActionCmd is a generic action runner used by network and pool keys.
@@ -2064,7 +2214,8 @@ func (m Model) maybeFetchGuestUptime() tea.Cmd {
 // mid-word.
 func (m Model) isTextInputting() bool {
 	return m.commanding || m.filtering || m.detailSearching ||
-		m.snapshotInput || m.hostInputStage > 0 || m.cloneFrom
+		m.snapshotInput || m.hostInputStage > 0 || m.cloneFrom ||
+		m.volInputStage > 0
 }
 
 // cycleMode advances to the next top-level view: main → hosts →
