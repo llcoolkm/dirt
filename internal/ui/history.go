@@ -211,6 +211,42 @@ func (h *domHistory) reset() {
 	*h = domHistory{}
 }
 
+// anomalyThreshold is the CPU or memory percentage above which a VM
+// is considered hot. anomalyConsecutive is how many consecutive
+// samples above the threshold before we raise an alert.
+const (
+	anomalyThreshold   = 90.0
+	anomalyConsecutive = 5
+)
+
+// checkAnomaly returns alert strings for each metric that has been
+// above the threshold for at least anomalyConsecutive consecutive
+// samples. Used by the main refresh path to flash warnings.
+func (h *domHistory) checkAnomaly() []string {
+	var alerts []string
+	if breach("CPU", h.cpu, anomalyThreshold, anomalyConsecutive) {
+		alerts = append(alerts, "CPU > 90%")
+	}
+	if breach("MEM", h.memUsedPct, anomalyThreshold, anomalyConsecutive) {
+		alerts = append(alerts, "MEM > 90%")
+	}
+	return alerts
+}
+
+// breach reports whether the last `n` samples of `s` are all above `threshold`.
+func breach(_ string, s []float64, threshold float64, n int) bool {
+	if len(s) < n {
+		return false
+	}
+	tail := s[len(s)-n:]
+	for _, v := range tail {
+		if v < threshold {
+			return false
+		}
+	}
+	return true
+}
+
 // currentCPU returns the most recent CPU% sample, or 0.
 func (h *domHistory) currentCPU() float64 {
 	if len(h.cpu) == 0 {

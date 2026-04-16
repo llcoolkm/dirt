@@ -532,6 +532,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == viewGraphs {
 			m.rebuildGraphsCache()
 		}
+		// Check for anomalies — flash a warning if any VM is hot.
+		m.checkAnomalies()
 		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case swapMsg:
@@ -1489,6 +1491,38 @@ func (m *Model) boundSelection() {
 func (m *Model) flashf(format string, args ...any) {
 	m.flash = fmt.Sprintf(format, args...)
 	m.flashUntil = time.Now().Add(3 * time.Second)
+}
+
+// checkAnomalies scans every running VM's history for sustained high
+// CPU or memory and flashes a warning in the status bar. The flash is
+// set to 2× the refresh interval so it stays visible until the next
+// tick replaces or clears it.
+func (m *Model) checkAnomalies() {
+	if m.snap == nil {
+		return
+	}
+	var hot []string
+	for _, d := range m.snap.Domains {
+		if d.State != lv.StateRunning {
+			continue
+		}
+		h := m.history[d.UUID]
+		if h == nil {
+			continue
+		}
+		alerts := h.checkAnomaly()
+		for _, a := range alerts {
+			hot = append(hot, d.Name+": "+a)
+		}
+	}
+	if len(hot) > 0 {
+		// Don't overwrite a user-initiated flash (action result).
+		if m.flash == "" || time.Now().After(m.flashUntil) {
+			msg := "⚠ " + strings.Join(hot, "  ·  ")
+			m.flash = msg
+			m.flashUntil = time.Now().Add(2 * m.refreshInterval)
+		}
+	}
 }
 
 // rebuildGraphsCache pre-renders the current graphs tab body so that
