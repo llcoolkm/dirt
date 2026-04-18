@@ -180,7 +180,7 @@ func renderVCPUChart(h *domHistory, w int, interval time.Duration) string {
 
 	chart := timeserieslinechart.New(w, chartHeight,
 		timeserieslinechart.WithTimeRange(tMin, now),
-		timeserieslinechart.WithXYSteps(5, 4),
+		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
 		timeserieslinechart.WithYLabelFormatter(wrapLabelFmt(pctLabelFmt)),
 	)
@@ -408,7 +408,7 @@ func buildChart(data []float64, w, h int, yMin, yMax float64, fixedY bool,
 	opts := []timeserieslinechart.Option{
 		timeserieslinechart.WithStyle(style),
 		timeserieslinechart.WithTimeRange(tMin, now),
-		timeserieslinechart.WithXYSteps(5, 4),
+		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
 	}
 	if fixedY {
@@ -467,7 +467,7 @@ func buildOverlayChart(dataA, dataB []float64, w, h int,
 
 	opts := []timeserieslinechart.Option{
 		timeserieslinechart.WithTimeRange(tMin, now),
-		timeserieslinechart.WithXYSteps(5, 4),
+		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
 	}
 	if labelFmt != nil {
