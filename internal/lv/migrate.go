@@ -36,6 +36,7 @@ type MigrateOptions struct {
 func (c *Client) Migrate(name string, opts MigrateOptions) error {
 	return c.withDomain(name, func(d *libvirt.Domain) error {
 		flags := libvirt.MIGRATE_LIVE |
+			libvirt.MIGRATE_PEER2PEER |
 			libvirt.MIGRATE_PERSIST_DEST |
 			libvirt.MIGRATE_UNDEFINE_SOURCE |
 			libvirt.MIGRATE_AUTO_CONVERGE
