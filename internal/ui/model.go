@@ -1584,10 +1584,6 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := strings.TrimSpace(m.command)
 		m.commanding = false
 		m.command = ""
-		// Try exact match first; fall back to unique prefix.
-		if match, ok := uniquePrefixMatch(cmd); ok {
-			cmd = match
-		}
 		return m.execCommand(cmd)
 	case "backspace":
 		m.command = runeBackspace(m.command)
@@ -1810,6 +1806,10 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 	case "jobs", "job":
 		m.mode = viewJobs
 		return m, nil
+	}
+	// No exact match — try unique prefix before giving up.
+	if match, ok := uniquePrefixMatch(cmd); ok {
+		return m.execCommand(match)
 	}
 	m.flashf("unknown command: %s", cmd)
 	return m, nil
