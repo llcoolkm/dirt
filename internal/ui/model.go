@@ -1764,13 +1764,13 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		return m, nil
 	case "q", "quit":
 		return m, tea.Quit
-	case "h", "help":
+	case "help":
 		m.mode = viewHelp
 		return m, nil
-	case "vm", "vms", "domain", "domains":
+	case "vm":
 		m.mode = viewMain
 		return m, nil
-	case "snap", "snapshot", "snapshots":
+	case "snap":
 		d, ok := m.currentDomain()
 		if !ok {
 			m.flashf("no domain selected")
@@ -1781,21 +1781,21 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.snapshotsSel = 0
 		m.snapshots = nil
 		return m, loadSnapshotsCmd(m.client, d.Name)
-	case "net", "network", "networks":
+	case "net":
 		m.mode = viewNetworks
 		m.networksSel = 0
 		m.networks = nil
 		return m, loadNetworksCmd(m.client)
-	case "pool", "pools":
+	case "pool":
 		m.mode = viewPools
 		m.poolsSel = 0
 		m.pools = nil
 		return m, loadPoolsCmd(m.client)
-	case "host", "hosts":
+	case "host":
 		m.mode = viewHosts
 		m.hostsSel = 0
 		return m, loadHostsListCmd(m.client.URI())
-	case "perf", "graph", "graphs":
+	case "perf":
 		if _, ok := m.currentDomain(); !ok {
 			m.flashf("no domain selected")
 			return m, nil
@@ -1803,7 +1803,7 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.mode = viewGraphs
 		m.graphsDirty = true
 		return m, nil
-	case "jobs", "job":
+	case "jobs":
 		m.mode = viewJobs
 		return m, nil
 	}
