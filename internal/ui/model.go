@@ -1574,10 +1574,20 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commanding = false
 		m.command = ""
 		return m, nil
+	case "tab":
+		// Auto-complete to the unique prefix match.
+		if match, ok := uniquePrefixMatch(m.command); ok {
+			m.command = match
+		}
+		return m, nil
 	case "enter":
 		cmd := strings.TrimSpace(m.command)
 		m.commanding = false
 		m.command = ""
+		// Try exact match first; fall back to unique prefix.
+		if match, ok := uniquePrefixMatch(cmd); ok {
+			cmd = match
+		}
 		return m.execCommand(cmd)
 	case "backspace":
 		m.command = runeBackspace(m.command)
@@ -1588,6 +1598,27 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+// uniquePrefixMatch returns the canonical command name if `prefix`
+// uniquely matches exactly one entry in paletteCommands. Returns
+// ("", false) if zero or multiple commands match.
+func uniquePrefixMatch(prefix string) (string, bool) {
+	if prefix == "" {
+		return "", false
+	}
+	var match string
+	count := 0
+	for _, c := range paletteCommands {
+		if strings.HasPrefix(c.name, prefix) {
+			match = c.name
+			count++
+		}
+	}
+	if count == 1 {
+		return match, true
+	}
+	return "", false
 }
 
 // handleCloneKey runs the inline rename prompt triggered by C on a
