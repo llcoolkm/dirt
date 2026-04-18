@@ -476,6 +476,43 @@ func (c *Client) Undefine(name string) error {
 	})
 }
 
+// UndefineAndDelete removes the domain definition AND deletes all its
+// disk images via the libvirt storage pool API. For each disk in the
+// domain XML, looks up the volume by path and calls virStorageVolDelete.
+// Disks not managed by any pool are skipped (returned in the warnings
+// slice so the caller can inform the user).
+func (c *Client) UndefineAndDelete(name string) (warnings []string, err error) {
+	err = c.withDomain(name, func(d *libvirt.Domain) error {
+		xmlStr, e := d.GetXMLDesc(0)
+		if e != nil {
+			return fmt.Errorf("get xml: %w", e)
+		}
+		paths := parseDiskPaths(xmlStr)
+
+		for _, p := range paths {
+			if p == "" {
+				continue
+			}
+			vol, lookupErr := c.conn.LookupStorageVolByPath(p)
+			if lookupErr != nil {
+				warnings = append(warnings, p+" (not in any pool)")
+				continue
+			}
+			delErr := vol.Delete(0)
+			_ = vol.Free()
+			if delErr != nil {
+				warnings = append(warnings, p+" ("+delErr.Error()+")")
+			}
+		}
+
+		flags := libvirt.DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
+			libvirt.DOMAIN_UNDEFINE_MANAGED_SAVE |
+			libvirt.DOMAIN_UNDEFINE_NVRAM
+		return d.UndefineFlags(flags)
+	})
+	return warnings, err
+}
+
 // HostInfo holds a small subset of libvirt's NodeInfo plus a name.
 type HostInfo struct {
 	Hostname       string

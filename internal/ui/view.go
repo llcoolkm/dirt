@@ -132,6 +132,13 @@ func (m Model) statusView() string {
 
 	// Confirm dialog takes precedence after filter.
 	if m.confirming {
+		if m.confirmAction == "undefine" {
+			msg := errorStyle.Render(fmt.Sprintf(" ⚠ undefine %s? ", m.confirmName)) +
+				keyHint.Render("y") + statusBar.Render(" keep disks  ") +
+				keyHint.Render("d") + statusBar.Render(" delete disks too  ") +
+				statusBar.Render("any other key to cancel")
+			return statusBar.Width(width).Render(msg)
+		}
 		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s %s? ", m.confirmAction, m.confirmName)) +
 			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
 		return statusBar.Width(width).Render(msg)

@@ -71,7 +71,7 @@ func (m Model) helpView() string {
 				{"e", "edit XML in $EDITOR (virsh edit)"},
 				{"Enter", "info pane (identity, hardware, disks, NICs…)"},
 				{"x", "raw XML detail view"},
-				{"U", "undefine — delete a stopped VM (asks y)"},
+				{"U", "undefine — y keeps disks, d deletes storage too"},
 			},
 		},
 		{

@@ -1281,6 +1281,23 @@ func (m Model) handleDetailSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Undefine has a two-choice prompt: y = keep disks, d = delete storage.
+	if m.confirmAction == "undefine" && msg.String() == "d" {
+		name := m.confirmName
+		m.confirming = false
+		m.confirmName = ""
+		m.confirmAction = ""
+		client := m.client
+		uri := client.URI()
+		return m, func() tea.Msg {
+			warnings, err := client.UndefineAndDelete(name)
+			if err == nil && len(warnings) > 0 {
+				err = fmt.Errorf("undefined, but could not delete: %s",
+					strings.Join(warnings, ", "))
+			}
+			return actionResultMsg{uri: uri, action: "undefine+delete", name: name, err: err}
+		}
+	}
 	switch msg.String() {
 	case "y", "Y":
 		name := m.confirmName
