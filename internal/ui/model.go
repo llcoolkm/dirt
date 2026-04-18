@@ -726,10 +726,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.infoFor != "" {
 				cmds = append(cmds, loadInfoCmd(m.client, m.infoFor))
 			}
-		case viewLogs:
-			if m.logsFor != "" {
-				cmds = append(cmds, loadLogsCmd(m.client, m.logsFor))
-			}
 		}
 		return m, tea.Batch(cmds...)
 

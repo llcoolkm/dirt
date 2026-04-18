@@ -127,10 +127,11 @@ func renderCPUTab(h *domHistory, w int, interval time.Duration) string {
 	// 3. User vs System.
 	var c3 string
 	if len(h.cpuUser) > 0 || len(h.cpuSystem) > 0 {
-		c3 = overlayBlock("User / System",
+		c3 = overlayBlockFixed("User / System",
 			"user", colRunning, fmtPct(h.cpuUser),
 			"system", colCrashed, fmtPct(h.cpuSystem),
 			h.cpuUser, h.cpuSystem, w, chartHeight,
+			0, 100, true,
 			graphStyleRead, graphStyleWrite,
 			pctLabelFmt, interval)
 	} else {
@@ -366,10 +367,22 @@ func overlayBlock(name, labelA string, colA lipgloss.TerminalColor, curA,
 	labelFmt func(float64) string,
 	interval time.Duration) string {
 
+	return overlayBlockFixed(name, labelA, colA, curA, labelB, colB, curB,
+		dataA, dataB, w, h, 0, 0, false, styleA, styleB, labelFmt, interval)
+}
+
+func overlayBlockFixed(name, labelA string, colA lipgloss.TerminalColor, curA,
+	labelB string, colB lipgloss.TerminalColor, curB string,
+	dataA, dataB []float64, w, h int,
+	yMin, yMax float64, fixedY bool,
+	styleA, styleB lipgloss.Style,
+	labelFmt func(float64) string,
+	interval time.Duration) string {
+
 	title := headerTitle.Render(name) + "  " +
 		lipgloss.NewStyle().Foreground(colA).Render(labelA+" "+curA) + "  " +
 		lipgloss.NewStyle().Foreground(colB).Render(labelB+" "+curB)
-	chart := buildOverlayChart(dataA, dataB, w, h, styleA, styleB, labelFmt, interval)
+	chart := buildOverlayChart(dataA, dataB, w, h, yMin, yMax, fixedY, styleA, styleB, labelFmt, interval)
 	return title + "\n" + chart
 }
 
@@ -430,6 +443,7 @@ func buildChart(data []float64, w, h int, yMin, yMax float64, fixedY bool,
 }
 
 func buildOverlayChart(dataA, dataB []float64, w, h int,
+	yMin, yMax float64, fixedY bool,
 	styleA, styleB lipgloss.Style,
 	labelFmt func(float64) string,
 	interval time.Duration) string {
@@ -469,16 +483,21 @@ func buildOverlayChart(dataA, dataB []float64, w, h int,
 	pushSeries(&chart, "b", samplesB, now, interval)
 
 	// Set Y range AFTER pushing data to override auto-adjustment.
-	mx := sliceMax(samplesA)
-	if m2 := sliceMax(samplesB); m2 > mx {
-		mx = m2
+	if fixedY {
+		chart.SetYRange(yMin, yMax)
+		chart.SetViewYRange(yMin, yMax)
+	} else {
+		mx := sliceMax(samplesA)
+		if m2 := sliceMax(samplesB); m2 > mx {
+			mx = m2
+		}
+		if mx <= 0 {
+			mx = 1
+		}
+		autoMax := mx * 1.1
+		chart.SetYRange(0, autoMax)
+		chart.SetViewYRange(0, autoMax)
 	}
-	if mx <= 0 {
-		mx = 1
-	}
-	yMax := mx * 1.1
-	chart.SetYRange(0, yMax)
-	chart.SetViewYRange(0, yMax)
 
 	chart.DrawBrailleAll()
 	return chart.View()

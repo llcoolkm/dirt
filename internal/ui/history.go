@@ -92,13 +92,26 @@ func (h *domHistory) update(d lv.Domain) {
 			cpuPct := dCPU / dt / vcpus * 100
 			h.cpu = appendCap(h.cpu, cpuPct, historyWindow)
 
-			// User / system CPU breakdown.
+			// User / system CPU breakdown. Clamp to [0,100] — timing
+			// jitter in the delta can briefly produce >100%.
 			if d.CPUUserNs > 0 || h.lastCPUUserNs > 0 {
 				userPct := float64(d.CPUUserNs-h.lastCPUUserNs) / 1e9 / dt / vcpus * 100
+				if userPct > 100 {
+					userPct = 100
+				}
+				if userPct < 0 {
+					userPct = 0
+				}
 				h.cpuUser = appendCap(h.cpuUser, userPct, historyWindow)
 			}
 			if d.CPUSystemNs > 0 || h.lastCPUSystemNs > 0 {
 				sysPct := float64(d.CPUSystemNs-h.lastCPUSystemNs) / 1e9 / dt / vcpus * 100
+				if sysPct > 100 {
+					sysPct = 100
+				}
+				if sysPct < 0 {
+					sysPct = 0
+				}
 				h.cpuSystem = appendCap(h.cpuSystem, sysPct, historyWindow)
 			}
 
