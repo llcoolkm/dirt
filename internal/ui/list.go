@@ -302,15 +302,14 @@ func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime
 }
 
 // listBodyHeight returns how many data rows we can show in the list pane.
-// Total terminal height minus header pane (≈ 8 lines), list border (2),
-// list header row (1), status bar (1), and a small safety margin.
+// Total terminal height minus header pane (width-aware: 9 wide, 18 narrow),
+// list border (2), list header row (1), status bar (1), safety margin (1).
 func (m Model) listBodyHeight() int {
 	if m.height == 0 {
 		return 10
 	}
-	headerH := 8
-	chrome := 2 + 1 + 1 // list border top/bot + header row + status bar
-	h := m.height - headerH - chrome - 1
+	chrome := 2 + 1 + 1 + 1 // list border top/bot + header row + status bar + margin
+	h := m.height - m.headerPaneHeight() - chrome
 	if h < 1 {
 		h = 1
 	}
