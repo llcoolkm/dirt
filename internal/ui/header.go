@@ -94,19 +94,16 @@ func (m Model) runningVMBox(d lv.Domain, boxWidth int) string {
 		inner = 30
 	}
 
-	// Title: name (bold) + state + uptime + OS (subtle).
+	// Title: name (bold) + state + vCPU, then optional uptime + OS
+	// that are dropped when the box is too narrow (side-by-side layout).
 	title := headerTitle.Render(d.Name) +
 		headerLabel.Render("  ") + stateRunning.Render("running") +
 		headerLabel.Render("  ") + headerValue.Render(fmt.Sprintf("%d vCPU", d.NrVCPU))
-	// Only show uptime when we have a trustworthy source — QGA's
-	// /proc/uptime inside the guest or, locally, the qemu process start
-	// time. Otherwise the field stays empty; showing a dirt-observation
-	// window labelled "uptime" would mislead the reader.
 	if up, accurate := effectiveUptime(d, h, m.guestUptime[d.Name]); up > 0 && accurate {
-		title += headerLabel.Render("  uptime ") + headerValue.Render(formatDuration(up))
+		title = appendIfFits(title, headerLabel.Render("  uptime ")+headerValue.Render(formatDuration(up)), inner)
 	}
 	if d.OS != "" {
-		title += headerLabel.Render("  ") + headerValue.Render(d.OS)
+		title = appendIfFits(title, headerLabel.Render("  ")+headerValue.Render(d.OS), inner)
 	}
 
 	cpuLine := buildCPULine("CPU  ", h.currentCPU(), inner)
@@ -134,10 +131,15 @@ func (m Model) runningVMBox(d lv.Domain, boxWidth int) string {
 func (m Model) idleVMBox(d lv.Domain, boxWidth int) string {
 	stateStr := stateStyleFor(d.State).Render(d.State.String())
 
+	inner := boxWidth - 4
+	if inner < 30 {
+		inner = 30
+	}
+
 	title := headerTitle.Render(d.Name) +
 		headerLabel.Render("  ") + stateStr
 	if d.OS != "" {
-		title += headerLabel.Render("  ") + headerValue.Render(d.OS)
+		title = appendIfFits(title, headerLabel.Render("  ")+headerValue.Render(d.OS), inner)
 	}
 
 	autostart := "no"
@@ -206,17 +208,17 @@ func (m Model) renderHostBox(boxWidth int) string {
 	// came from libvirt's node APIs instead of /proc.
 	title := headerTitle.Render("host: " + m.snap.Hostname)
 	if m.hostStats.Remote {
-		title += headerLabel.Render("  (remote)")
+		title = appendIfFits(title, headerLabel.Render("  (remote)"), inner)
 	}
 	if m.host.CPUs > 0 {
-		title += headerLabel.Render("  ") + headerValue.Render(fmt.Sprintf("%d cores", m.host.CPUs))
+		title = appendIfFits(title, headerLabel.Render("  ")+headerValue.Render(fmt.Sprintf("%d cores", m.host.CPUs)), inner)
 	}
 	if m.hostStats.UptimeSeconds > 0 {
 		uptime := time.Duration(m.hostStats.UptimeSeconds * float64(time.Second))
-		title += headerLabel.Render("  uptime ") + headerValue.Render(formatDuration(uptime))
+		title = appendIfFits(title, headerLabel.Render("  uptime ")+headerValue.Render(formatDuration(uptime)), inner)
 	}
 	if m.host.OSPretty != "" {
-		title += headerLabel.Render("  ") + headerValue.Render(m.host.OSPretty)
+		title = appendIfFits(title, headerLabel.Render("  ")+headerValue.Render(m.host.OSPretty), inner)
 	}
 
 	// CPU info subtitle: model name + topology, on its own line.
@@ -539,6 +541,16 @@ func formatPagesPerSec(pps float64) string {
 	}
 	bps := pps * 4096
 	return formatRate(bps)
+}
+
+// appendIfFits appends seg to s only when the combined visible width
+// stays within max cells. Used to progressively build title lines that
+// degrade gracefully on narrow terminals instead of wrapping.
+func appendIfFits(s, seg string, max int) string {
+	if lipgloss.Width(s)+lipgloss.Width(seg) <= max {
+		return s + seg
+	}
+	return s
 }
 
 // colorBar renders a horizontal bar coloured by fill percentage:

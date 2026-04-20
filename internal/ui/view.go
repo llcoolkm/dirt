@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // View is the root render — composes header, list, and status bar,
@@ -54,14 +55,23 @@ func (m Model) View() string {
 	}
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-	// Hard-clip to terminal height so wrapped lines never duplicate
-	// the view. This catches any case where header boxes, wide rows,
-	// or status-bar hints wrap on narrow terminals.
-	if m.height > 0 {
+	// Hard-clip to terminal dimensions so overlong lines never cause
+	// the terminal to wrap (Bubble Tea can't track those visual wraps,
+	// leading to ghost duplicates on resize). Truncate wide lines first,
+	// then clip to height.
+	if m.width > 0 || m.height > 0 {
 		lines := strings.Split(out, "\n")
-		if len(lines) > m.height {
-			out = strings.Join(lines[:m.height], "\n")
+		if m.width > 0 {
+			for i, line := range lines {
+				if ansi.StringWidth(line) > m.width {
+					lines[i] = ansi.Truncate(line, m.width, "")
+				}
+			}
 		}
+		if m.height > 0 && len(lines) > m.height {
+			lines = lines[:m.height]
+		}
+		out = strings.Join(lines, "\n")
 	}
 	return out
 }
