@@ -2,6 +2,47 @@
 
 All notable changes to dirt are documented here.
 
+## v0.7.0 — 2026-04-20
+
+**Jobs system, live migration, clone, hot-plug, volume CRUD, anomaly detection.**
+
+### Jobs system
+- Background job abstraction for long-running operations — visible in the status bar and in a dedicated `:jobs` view with progress bars, byte counters, and elapsed time.
+- Snapshot create, revert, and delete run as jobs with real progress from `virDomainGetJobStats`.
+- Generic `runDomainJob` helper so any blocking libvirt call becomes a job in a few lines.
+- Completed jobs are pruned after 10 minutes.
+
+### Live migration
+- `M` on a running VM opens a destination picker (the hosts list, current host filtered out). Confirm with Enter to start a peer-to-peer live migration.
+- Flags: `LIVE`, `PEER2PEER`, `PERSIST_DEST`, `UNDEFINE_SOURCE`, `AUTO_CONVERGE`, and `NON_SHARED_DISK` for cross-host storage copy.
+- 1 Hz progress polling via `virDomainGetJobStats`; cancellation via `virDomainAbortJob`.
+
+### VM clone
+- `C` on a stopped VM opens an inline name prompt. Runs `virt-clone --auto-clone` as a background job — disk images are sparse-copied, MAC addresses regenerated.
+
+### Hot-plug devices
+- `A` on a running VM opens a device picker: `d` for disk (path + target prompt), `n` for NIC (network name prompt). Executes via `virDomainAttachDeviceFlags` with `LIVE + CONFIG`.
+- Detach API wired (`DetachDisk`, `DetachNIC`) but not yet exposed in the UI.
+
+### Volume CRUD
+- `c` in the volumes view creates a new qcow2 volume (two-step name + size prompt, e.g. `10G`, `500M`). `D` deletes with confirmation. Both go through `virStorageVol*` APIs.
+
+### Undefine with storage deletion
+- `U` now shows a two-choice prompt: `y` keeps disks, `d` deletes all disk images via `virStorageVolLookupByPath` + `virStorageVolDelete`. Entirely through libvirt — works locally and remotely. Disks not managed by any pool are skipped with a warning.
+
+### Anomaly detection
+- Flash warning in the status bar when any VM sustains CPU% or memory-used% above 90% for 5+ consecutive samples. Yields to user-initiated flash messages.
+
+### Command palette improvements
+- **Prefix matching**: `:j` → jobs, `:pe` → perf, `:s` → snap. Ambiguous prefixes (`:h` → help/host) wait for more characters.
+- **Tab completion**: fills in the unique match so you can see what you're about to execute.
+- Hardcoded aliases removed — one canonical name per command, prefix matching handles the rest.
+
+### Bug fixes
+- User/system CPU graph Y-axis showed 1663% due to timing jitter — clamped to [0, 100] and chart uses fixed Y range.
+- Y-axis labels showed 67% instead of 50% — ntcharts `yStep` is a row stride, fixed to 3 for clean 0/50/100.
+- Migration P2P flag was missing — "direct migration not supported" error on every attempt.
+
 ## v0.6.2 — 2026-04-16
 
 **Code review findings: defence-in-depth, correctness, polish.**
