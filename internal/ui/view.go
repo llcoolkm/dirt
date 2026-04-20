@@ -52,7 +52,18 @@ func (m Model) View() string {
 		m.listView(),
 		m.statusView(),
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	// Hard-clip to terminal height so wrapped lines never duplicate
+	// the view. This catches any case where header boxes, wide rows,
+	// or status-bar hints wrap on narrow terminals.
+	if m.height > 0 {
+		lines := strings.Split(out, "\n")
+		if len(lines) > m.height {
+			out = strings.Join(lines[:m.height], "\n")
+		}
+	}
+	return out
 }
 
 // splashView is shown during the first connection, before any snapshot has
