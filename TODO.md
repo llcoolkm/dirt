@@ -4,25 +4,23 @@ Ideas discussed but not yet implemented.
 
 ## Medium-term
 
+- **Info view visual enrichment** — the upper-right area of the info view
+  is sparse. Ideas: inline CPU/memory sparkline or mini-graph, ASCII art
+  OS logo (penguin for Linux, Windows flag, BSD daemon, etc.), or a
+  compact resource summary widget.
 - **Per-disk breakdown** — which disk is hot? Show individual disk rows in
-  the info view instead of summing across all disks.
+  the info view instead of summing across all disks. Include a capacity
+  bar (allocated/total) per disk, coloured like the pool bars.
 - **Per-NIC breakdown** — same for network interfaces.
-- **DHCP lease drill-down** in networks view (Enter on a network shows
-  leases with hostname, MAC, IP, expiry).
-- **Volume creation/deletion** in the pools view.
-- **Colour theme customisation** — light/dark/solarized/gruvbox via
-  `config.yaml` (theme field is already reserved).
-
-## Longer-term
-
-- **Anomaly detection** — flash alerts when a VM exceeds its CPU/memory/IO
-  baseline for a sustained period.
 - **Export** — `:export csv` or `:export json` to dump the current table
   or historical stats to a file.
 - **Bridge stats** — host-side network counters from
   `/sys/class/net/<bridge>/statistics/` in the networks view.
-- **Live migration** — multi-host switching is in place; next step would be
-  `virDomainMigrate` between connected hosts.
+
+## Longer-term
+
+- **Detach devices** — `DetachDisk` / `DetachNIC` API is wired but not
+  yet exposed in the UI.
 
 ## Won't do (for now)
 
