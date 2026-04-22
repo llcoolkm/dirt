@@ -4,7 +4,7 @@
 
 Output images/dirt_ui.gif
 Set Width 1400
-Set Height 480
+Set Height 650
 Set FontSize 14
 Set Padding 5
 
