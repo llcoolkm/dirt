@@ -156,6 +156,11 @@ type Domain struct {
 	TotalDiskCapacityBytes   uint64 // sum of virtual sizes (what the guest sees)
 	TotalDiskAllocationBytes uint64 // sum of actual on-host disk usage (sparse-aware)
 
+	// Per-disk capacity / allocation, keyed by source path. Populated
+	// alongside the totals; empty when libvirt cannot read the qcow2
+	// header (rare — declined remote backends).
+	DiskBlockInfo map[string]DiskBlock
+
 	// Per-NIC counters. Keyed by device name (vnet0, macvtap0, …).
 	NICStats map[string]NICStats
 
@@ -175,6 +180,13 @@ type DiskStats struct {
 	WrBytes uint64
 	RdReqs  uint64
 	WrReqs  uint64
+}
+
+// DiskBlock holds the virtual + on-host sizes of a single backing
+// file as reported by virDomainGetBlockInfo.
+type DiskBlock struct {
+	Capacity   uint64 // virtual size (what the guest sees)
+	Allocation uint64 // actual host usage (sparse-aware)
 }
 
 // NICStats holds per-NIC counters (cumulative).
@@ -361,7 +373,7 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 
 		// Disk inventory is available for both running and stopped domains —
 		// libvirt reads the qcow2 header directly when no qemu has the file.
-		dom.NumDisks, dom.TotalDiskCapacityBytes, dom.TotalDiskAllocationBytes = diskInventory(d)
+		dom.NumDisks, dom.TotalDiskCapacityBytes, dom.TotalDiskAllocationBytes, dom.DiskBlockInfo = diskInventory(d)
 
 		// Block stats — aggregate and per-disk.
 		dom.DiskStats = make(map[string]DiskStats)
@@ -1255,16 +1267,18 @@ func (c *Client) XMLDesc(name string) (string, error) {
 
 // diskInventory enumerates the running domain's file-backed disks via the
 // libvirt domain XML and queries each one for capacity + allocation. Returns
-// (numDisks, totalCapacityBytes, totalAllocationBytes). Any field may be 0
-// if libvirt declines (e.g. on non-running domains for some backends).
-func diskInventory(d *libvirt.Domain) (int, uint64, uint64) {
+// (numDisks, totalCapacityBytes, totalAllocationBytes, perPath). Any field
+// may be 0 if libvirt declines (e.g. on non-running domains for some
+// backends); perPath may be nil in the same case.
+func diskInventory(d *libvirt.Domain) (int, uint64, uint64, map[string]DiskBlock) {
 	x, err := d.GetXMLDesc(0)
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, nil
 	}
 	paths := parseDiskPaths(x)
 	var totalCap, totalAlloc uint64
 	count := 0
+	per := make(map[string]DiskBlock, len(paths))
 	for _, p := range paths {
 		info, err := d.GetBlockInfo(p, 0)
 		if err != nil {
@@ -1273,8 +1287,9 @@ func diskInventory(d *libvirt.Domain) (int, uint64, uint64) {
 		totalCap += info.Capacity
 		totalAlloc += info.Allocation
 		count++
+		per[p] = DiskBlock{Capacity: info.Capacity, Allocation: info.Allocation}
 	}
-	return count, totalCap, totalAlloc
+	return count, totalCap, totalAlloc, per
 }
 
 // bootedAt returns the qemu process start time for a running domain by

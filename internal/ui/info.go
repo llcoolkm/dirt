@@ -221,6 +221,21 @@ func (m Model) renderInfoBody(info lv.DomainInfo) []string {
 		if disk.Source != "" {
 			lines = append(lines, "  "+label("")+headerLabel.Render(disk.Source))
 		}
+		// Per-disk capacity bar — coloured like the pool bars,
+		// thresholds at 80 / 95 % allocation.
+		if live != nil && disk.Source != "" {
+			if blk, ok := live.DiskBlockInfo[disk.Source]; ok && blk.Capacity > 0 {
+				pct := float64(blk.Allocation) / float64(blk.Capacity) * 100
+				bar := storageColorBar(pct, 24)
+				detail := fmt.Sprintf(" %s / %s  (%.0f%%)",
+					formatBytes(float64(blk.Allocation)),
+					formatBytes(float64(blk.Capacity)),
+					pct)
+				lines = append(lines, "  "+label("")+
+					headerLabel.Render("[")+bar+headerLabel.Render("]")+
+					headerValue.Render(detail))
+			}
+		}
 	}
 	if live != nil && live.TotalDiskCapacityBytes > 0 {
 		lines = append(lines, "")
