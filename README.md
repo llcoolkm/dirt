@@ -74,7 +74,7 @@ No git clone is required — `go install` pulls the source from the module proxy
 ### Pinning a specific version
 
 ```sh
-go install github.com/llcoolkm/dirt@v0.7.0   # exact tag
+go install github.com/llcoolkm/dirt@v0.8.0   # exact tag
 go install github.com/llcoolkm/dirt@main     # bleeding edge
 ```
 
@@ -141,48 +141,59 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `G` / `End` | jump to bottom |
 | `Ctrl-d` / `PgDn` | page down |
 | `Ctrl-u` / `PgUp` | page up |
+| `1`–`9`, `0` | numeric prefix — `5j` moves 5, `20G` jumps to row 20, `5<space>` marks five |
 | *left click* | select a row in any list |
 | *scroll wheel* | move the selection up / down |
+
+### Marks & bulk operations
+| Key | Action |
+|-----|--------|
+| `Space` | toggle mark on cursor row, advance in last cursor direction |
+| `*` | invert marks on visible rows |
+| `Esc` | clear pending count → marks → filter (one layer per press) |
+| `:mark all` / `:mark invert` / `:mark none` | bulk mark management |
+| *lifecycle key with marks set* | acts on the marked set instead of the cursor row (with a single confirmation flash) |
+| `U` *with > 20 marks* | typed-phrase confirmation: `undefine N` (or `undefine N delete` to also remove storage) |
 
 ### Filter & Sort
 | Key | Action |
 |-----|--------|
 | `/` | filter VM list by substring |
-| `Esc` | clear filter |
-| `1`–`9` | sort by column (name, state, IP, OS, vCPU, mem, mem%, CPU%, uptime) |
-| *(same key)* | press again to reverse direction |
+| `Esc` | clear filter (after marks and pending count) |
+| `:sort <col> [desc]` | sort by `name`, `state`, `ip`, `os`, `vcpu`, `mem`, `mem_pct`, `cpu`, `uptime`; optional `desc` reverses |
 
-### Lifecycle (selected VM)
+### Lifecycle (cursor row, or every marked VM if marks are set)
 | Key | Action |
 |-----|--------|
 | `s` | start (if stopped) |
 | `S` | graceful shutdown (asks `y` to confirm) |
 | `D` | destroy — force off (asks `y` to confirm) |
 | `R` | reboot (asks `y` to confirm) |
-| `p` | pause / resume (toggle, asks `y` to pause) |
-| `o` | SSH into guest (requires detected IP) |
-| `M` | live migrate to another host (picks destination, shows progress) |
-| `C` | clone a stopped VM (prompts for new name) |
-| `A` | hot-plug device — `d` for disk, `n` for NIC |
-| `c` | open serial console (`Ctrl-]` to detach) — Linux-friendly |
-| `v` | open graphical console via `virt-viewer` — works for Windows too |
-| `e` | edit XML in `$EDITOR` (`virsh edit`) |
-| `x` | open raw XML detail view |
-| `Enter` | open info view |
+| `p` | pause / resume (single-target toggle; bulk pauses running) |
+| `o` | SSH into guest (requires detected IP, single-target only) |
+| `M` | live migrate to another host (single-target only) |
+| `C` | clone a stopped VM (single-target only) |
+| `A` | hot-plug device — `d` for disk, `n` for NIC (single-target only) |
+| `c` | open serial console (`Ctrl-]` to detach) (single-target only) |
+| `v` | open graphical console via `virt-viewer` (single-target only) |
+| `e` | edit XML in `$EDITOR` (single-target only) |
+| `x` | open raw XML detail view (single-target only) |
+| `Enter` | open info view (single-target only) |
 | `U` | undefine — `y` keeps disks, `d` deletes storage too |
 
 ### Command palette & view switching
 | Key | Action |
 |-----|--------|
-| `:` | open command palette (the available commands are listed next to the prompt and narrow as you type) |
-| `Tab` | cycle forward through top-level views: main → hosts → networks → pools → snapshots → main |
-| `Shift-Tab` | cycle the same ring backwards |
+| `:` | open command palette — sub-arg menu stays alive after a space (`:theme `, `:sort `, `:mark `) |
+| `Tab` | complete top-level command or sub-arg; falls back to longest common prefix |
+| `Shift-Tab` | cycle backward through top-level views |
 | `:snap` | snapshots of selected VM |
 | `:net` | libvirt networks |
 | `:pool` | storage pools (and drill-down into volumes) |
 | `:host` | list of known libvirt endpoints (switch hypervisors) |
 | `:perf` | performance graphs for selected VM |
 | `:jobs` | background jobs (migrations, snapshots, clone) |
+| `:theme <name>` | hot-swap palette (`default`, `light`, `solarized`, `gruvbox`, `shades`, `mono`, `phosphor`) |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
 | `:q` | quit |
