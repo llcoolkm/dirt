@@ -101,6 +101,12 @@ type Model struct {
 	// survive sort/filter/refresh until the domain itself disappears.
 	marks map[string]bool
 
+	// Grouping: when set, the list is rendered with group headers
+	// (and domains in folded groups are hidden from visibleDomains).
+	// Empty string means no grouping.
+	groupBy      string
+	foldedGroups map[string]bool
+
 	// Vim-style numeric prefix: digits accumulate here and the next
 	// motion key consumes the count (returning 1 if unset). Reset by
 	// Esc or by the motion that consumes it.
@@ -1062,6 +1068,22 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.invertMarksVisible()
 		return m, nil
 
+	case "z":
+		// Toggle the fold of the group the cursor is on. No-op when
+		// grouping is off — the master gets a flash.
+		if m.groupBy == "" {
+			m.flashf("not grouped — :group os|state first")
+			return m, nil
+		}
+		if d, ok := m.currentDomain(); ok {
+			gk := groupKeyFor(d, m.groupBy)
+			if m.foldedGroups == nil {
+				m.foldedGroups = make(map[string]bool)
+			}
+			m.foldedGroups[gk] = !m.foldedGroups[gk]
+		}
+		return m, nil
+
 	// Numeric prefix: digits accumulate a count consumed by the next
 	// motion key. "0" is a digit only when a count is already pending
 	// — otherwise it has no binding, so leading zeros never start a
@@ -1762,7 +1784,10 @@ func (m *Model) updateHistory() {
 	}
 }
 
-// visibleDomains returns the filtered + sorted slice currently shown in the table.
+// visibleDomains returns the filtered + sorted slice currently shown
+// in the table. When grouping is active, domains in folded groups
+// are excluded so the master never selects something they cannot
+// see — bulk actions on a folded group simply skip those rows.
 func (m Model) visibleDomains() []lv.Domain {
 	if m.snap == nil {
 		return nil
@@ -1773,12 +1798,42 @@ func (m Model) visibleDomains() []lv.Domain {
 		if f != "" && !strings.Contains(strings.ToLower(d.Name), f) {
 			continue
 		}
+		if m.groupBy != "" && m.foldedGroups[groupKeyFor(d, m.groupBy)] {
+			continue
+		}
 		out = append(out, d)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		// When grouping, sort by group first so all members of one
+		// group land contiguously, then by the active sort column.
+		if m.groupBy != "" {
+			ki := groupKeyFor(out[i], m.groupBy)
+			kj := groupKeyFor(out[j], m.groupBy)
+			if ki != kj {
+				return ki < kj
+			}
+		}
 		return m.lessDomain(out[i], out[j])
 	})
 	return out
+}
+
+// groupKeyFor returns the group bucket for a domain under the given
+// group field. Unknown fields fall through to the empty key, which
+// puts everything in one group (a no-op).
+func groupKeyFor(d lv.Domain, field string) string {
+	switch field {
+	case "os":
+		if d.OS == "" {
+			return "(unknown)"
+		}
+		return d.OS
+	case "state":
+		return d.State.String()
+	case "host":
+		return "" // single-host views; reserved for multi-host expansion
+	}
+	return ""
 }
 
 // lessDomain implements the active column sort order.
@@ -2207,6 +2262,32 @@ func (m Model) execThemeCommand(name string) Model {
 	}
 	ApplyTheme(name)
 	m.flashf("theme: %s", name)
+	return m
+}
+
+// execGroupCommand routes :group <field>. Empty arg flashes the
+// current grouping; "none" turns it off and clears the fold map.
+func (m Model) execGroupCommand(arg string) Model {
+	if arg == "" {
+		if m.groupBy == "" {
+			m.flashf(":group os|state|none — currently ungrouped")
+		} else {
+			m.flashf("grouped by %s — :group none to clear", m.groupBy)
+		}
+		return m
+	}
+	switch arg {
+	case "none", "off":
+		m.groupBy = ""
+		m.foldedGroups = nil
+	case "os", "state":
+		m.groupBy = arg
+		if m.foldedGroups == nil {
+			m.foldedGroups = make(map[string]bool)
+		}
+	default:
+		m.flashf("unknown group field: %s — use os, state, or none", arg)
+	}
 	return m
 }
 
@@ -2699,6 +2780,10 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 	// Theme hot-swap: :theme <name>. Empty name flashes the list.
 	if strings.HasPrefix(cmd, "theme") {
 		return m.execThemeCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "theme"))), nil
+	}
+	// Grouping: :group os|state|none.
+	if strings.HasPrefix(cmd, "group") {
+		return m.execGroupCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "group"))), nil
 	}
 	// Export the current VM-list view: :export csv|json [path]
 	if strings.HasPrefix(cmd, "export") {

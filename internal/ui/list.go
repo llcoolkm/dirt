@@ -246,12 +246,49 @@ func (m Model) listView() string {
 
 	rows := make([]string, 0, end-m.offset+1)
 	rows = append(rows, header)
+	prevGroup := "<<unset>>"
 	for i := m.offset; i < end; i++ {
 		d := doms[i]
+		if m.groupBy != "" {
+			gk := groupKeyFor(d, m.groupBy)
+			if gk != prevGroup {
+				rows = append(rows, renderGroupHeader(m, gk, doms))
+				prevGroup = gk
+			}
+		}
 		row := renderDataRow(cols, d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, m.isMarked(d.UUID), nCols)
 		rows = append(rows, row)
 	}
 	return listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
+}
+
+// renderGroupHeader produces the bold separator line shown above the
+// first row of each group. Counts every domain in the group across
+// the *unfiltered* snapshot — folded ones included — so the header
+// always reflects reality.
+func renderGroupHeader(m Model, key string, visible []lv.Domain) string {
+	var total, running int
+	if m.snap != nil {
+		for _, d := range m.snap.Domains {
+			if groupKeyFor(d, m.groupBy) != key {
+				continue
+			}
+			total++
+			if d.State == lv.StateRunning {
+				running++
+			}
+		}
+	}
+	folded := ""
+	if m.foldedGroups[key] {
+		folded = "  ▶ folded"
+	}
+	label := fmt.Sprintf("▼ %s  ·  %d total · %d running%s",
+		key, total, running, folded)
+	if m.foldedGroups[key] {
+		label = strings.Replace(label, "▼", "▶", 1)
+	}
+	return " " + listHeaderRow.Render(label)
 }
 
 // renderHeaderRow renders the column-header row, marking the active

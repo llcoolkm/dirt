@@ -308,6 +308,11 @@ var paletteCommands = []paletteCommand{
 	{"mark", "mark [all|invert|none]", markArgs},
 	{"sort", "sort [col] [desc]", sortArgs},
 	{"theme", "theme [name]", themeArgs},
+	{"group", "group VM list", []paletteArg{
+		{name: "os"},
+		{name: "state"},
+		{name: "none"},
+	}},
 	{"help", "help", nil},
 	{"q", "quit", nil},
 }
