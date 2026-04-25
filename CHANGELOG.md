@@ -2,6 +2,45 @@
 
 All notable changes to dirt are documented here.
 
+## v0.8.0 — 2026-04-25
+
+**Bulk operations, vim numeric prefixes, palette overhaul, three new themes.**
+
+### Marks and bulk operations
+- `SPACE` toggles a mark on the cursor row and advances. The advance direction follows the last cursor motion (`j`/`k`/`g`/`G`), so a run of SPACEs can mark a block in either direction.
+- Marks are keyed by UUID and survive sort, filter, and snapshot refresh; pruned automatically when a domain disappears.
+- Mode indicator `✓ N marked` right-aligned in the status bar, with a numeric-prefix indicator alongside when a count is pending. Narrow terminals truncate hints rather than the indicator.
+- Lifecycle keys (`s`, `S`, `D`, `R`, `p`, `U`) act on the marked set when any marks exist; the cursor row otherwise. Confirmation reads `N VMs (X hidden by filter)?`.
+- Mass undefine above 20 demands a typed phrase confirmation (`undefine N` or `undefine N delete` to also remove storage). One stray keystroke cannot annihilate a large set.
+- Single result flash for bulk: `✓ shutdown 15 VMs`, or `shutdown: 13 ok, 2 failed — <first 3 errors>; +N more`.
+
+### Vim-style numeric prefixes
+- Digits `0`–`9` accumulate into a count consumed by the next motion: `5j`, `20G`, `5<space>` (mark next 5).
+- `ctrl-d` / `ctrl-u` / `pgdown` / `pgup` honour the count; default 10 if none.
+- `Esc` clears layered state vim-style: pending count, then marks, then filter.
+- `0` alone is a no-op (no phantom counts).
+
+### Long-table viewport indicator
+- When the domains list exceeds the visible window, the column header gains a right-aligned `12–30/47` indicator. Drops silently on terminals too narrow to host it.
+
+### Palette overhaul
+- New: `:mark [all|invert|none]`, `:sort <col> [desc|asc]`, `:theme <name>`, `:unmark`.
+- `1`–`9` sort bindings removed (freed for counts). Sort moved to `:sort <id>`.
+- `ctrl-a` mark-all binding removed (screen / tmux conflict). Use `:mark all`.
+- Palette hint stays alive after a space — sub-arg menu shows the typed command's valid values, narrowing as you type.
+- `Tab` completes top-level commands and sub-args; falls back to longest common prefix when matches are ambiguous.
+
+### New themes
+- `shades` — greyscale, states distinguished by brightness.
+- `mono` — pure two-tone using only the terminal's default fg/bg. States differentiated by `italic` / `faint` / `bold` / `reverse`. Marks lean on `bold + underline`.
+- `phosphor` — CRT green from deep `22` to electric `82`, all eight per-vCPU graph series in shades of green.
+
+### Theme coverage fixes
+- Every table (domains, pools, volumes, networks, leases, snapshots, hosts) now wraps non-state cells in `colFG` so themes paint the entire row, not just the state column.
+- ntcharts axis and label styles now pull from the theme's `colMuted`.
+- Search highlights in the `:xml` detail view honour the active theme.
+- Status-bar key-hint descriptions re-assert `colMuted` after each `keyHint.Render` reset.
+
 ## v0.7.0 — 2026-04-20
 
 **Jobs system, live migration, clone, hot-plug, volume CRUD, anomaly detection.**
