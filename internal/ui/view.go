@@ -284,6 +284,7 @@ var paletteCommands = []paletteCommand{
 	{"host", "hosts", nil},
 	{"perf", "graphs", nil},
 	{"jobs", "background jobs", nil},
+	{"resume", "resume paused VM(s)", nil},
 	{"mark", "mark [all|invert|none]", markArgs},
 	{"sort", "sort [col] [desc]", sortArgs},
 	{"theme", "theme [name]", themeArgs},

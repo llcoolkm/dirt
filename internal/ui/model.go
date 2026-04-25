@@ -2484,6 +2484,22 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		return m, nil
 	case "mark", "mark all", "mark invert", "mark none", "unmark":
 		return m.execMarkCommand(cmd), nil
+	case "resume":
+		// Bulk-resume every marked paused VM (or the cursor row when
+		// no marks are set, via the regular `p` toggle path).
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StatePaused)
+			if len(names) == 0 {
+				m.flashf("no marked VMs are paused")
+				return m, nil
+			}
+			return m, bulkActionCmd(m.client, "resume", names, m.client.Resume)
+		}
+		if d, ok := m.currentDomain(); ok && d.State == lv.StatePaused {
+			return m, actionCmd(m.client, "resume", d.Name, m.client.Resume)
+		}
+		m.flashf("no paused VM to resume")
+		return m, nil
 	}
 	// Sort commands take the column id (and optional direction) as args.
 	if strings.HasPrefix(cmd, "sort") {
