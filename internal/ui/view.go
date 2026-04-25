@@ -117,18 +117,30 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt + "    " + hint)
 	}
 
-	// Attach device prompt.
+	// Attach / detach device prompt.
 	if m.attachStage > 0 {
 		var prompt string
 		cursor := lipgloss.NewStyle().Foreground(colAccent).Render("█")
+		verb := m.attachVerb
+		if verb == "" {
+			verb = "attach"
+		}
 		switch m.attachStage {
 		case 1:
-			prompt = keyHint.Render("attach to "+m.attachDomain+": ") +
+			prompt = keyHint.Render(verb+" on "+m.attachDomain+": ") +
 				key("d") + headerLabel.Render("isk  ") +
 				key("n") + headerLabel.Render("ic  ") +
 				key("esc") + headerLabel.Render(" cancel")
 		case 2:
-			if m.attachType == "disk" {
+			if verb == "detach" {
+				if m.attachType == "disk" {
+					prompt = keyHint.Render("target dev: ") + m.attachParam1 + cursor +
+						headerLabel.Render("   (e.g. vdb — enter to detach, esc cancel)")
+				} else {
+					prompt = keyHint.Render("MAC: ") + m.attachParam1 + cursor +
+						headerLabel.Render("   (e.g. 52:54:00:… — enter to detach, esc cancel)")
+				}
+			} else if m.attachType == "disk" {
 				prompt = keyHint.Render("disk path: ") + m.attachParam1 + cursor +
 					headerLabel.Render("   (enter → target, esc cancel)")
 			} else {
@@ -390,6 +402,7 @@ func (m Model) shortHelp() string {
 		hint("M", " migrate"),
 		hint("C", " clone"),
 		hint("A", " attach"),
+		hint("X", " detach"),
 		hint("c", " console"),
 		hint("v", " viewer"),
 		hint("e", " edit"),

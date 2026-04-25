@@ -235,10 +235,12 @@ type Model struct {
 	// (d=disk, n=nic), 2 = typing device-specific param (path/target
 	// for disk, network name for NIC).
 	attachDomain string
-	attachStage  int // 0=idle, 1=pick type, 2=param1, 3=param2
+	attachStage  int    // 0=idle, 1=pick type, 2=param1, 3=param2
+	attachVerb   string // "attach" or "detach" — same prompt machinery
 	attachType   string // "disk" or "nic"
-	attachParam1 string // disk: source path, nic: network name
-	attachParam2 string // disk: target device (vdb/vdc)
+	attachParam1 string // attach disk: source path, attach nic: network name
+	//                     detach disk: target dev (vdb), detach nic: MAC
+	attachParam2 string // attach disk only: target device (vdb/vdc)
 }
 
 // sortColumn enumerates the sortable columns in the VM list. The order
@@ -1273,9 +1275,24 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.warnSingleTargetWithMarks("attach")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.attachDomain = d.Name
+			m.attachVerb = "attach"
 			m.attachStage = 1
 		} else {
 			m.flashf("attach only works on running VMs")
+		}
+		return m, nil
+
+	case "X":
+		// Hot-remove a device from the selected running VM. Reuses
+		// the attach prompt machinery — single key collects disk
+		// target (vdb, vdc, …) or NIC MAC, then libvirt does the rest.
+		m.warnSingleTargetWithMarks("detach")
+		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
+			m.attachDomain = d.Name
+			m.attachVerb = "detach"
+			m.attachStage = 1
+		} else {
+			m.flashf("detach only works on running VMs")
 		}
 		return m, nil
 
@@ -2344,8 +2361,9 @@ func isValidDomainNameChar(b byte) bool {
 	return isValidSnapshotChar(b)
 }
 
-// handleAttachKey runs the multi-stage attach prompt: pick device
-// type → provide device-specific params → execute.
+// handleAttachKey runs the multi-stage attach / detach prompt: pick
+// device type → provide device-specific params → execute. The verb
+// ("attach" or "detach") was set by the trigger key (A or X).
 func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.attachStage {
 	case 1:
@@ -2357,12 +2375,20 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			m.attachType = "disk"
 			m.attachStage = 2
-			m.attachParam1 = "/var/lib/libvirt/images/"
+			if m.attachVerb == "detach" {
+				m.attachParam1 = "vdb" // target dev
+			} else {
+				m.attachParam1 = "/var/lib/libvirt/images/"
+			}
 			return m, nil
 		case "n":
 			m.attachType = "nic"
 			m.attachStage = 2
-			m.attachParam1 = "default"
+			if m.attachVerb == "detach" {
+				m.attachParam1 = "" // MAC — no sensible default
+			} else {
+				m.attachParam1 = "default"
+			}
 			return m, nil
 		}
 		return m, nil
@@ -2372,6 +2398,9 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.attachStage = 0
 			return m, nil
 		case "enter":
+			if m.attachVerb == "detach" {
+				return m.executeDetach()
+			}
 			if m.attachType == "disk" {
 				// Move to stage 3 to pick the target device name.
 				m.attachStage = 3
@@ -2431,6 +2460,34 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// executeDetach fires the libvirt detach call — disk by target
+// device (vdb), NIC by MAC. Single-stage prompt is enough since
+// either identifier is a single token.
+func (m Model) executeDetach() (tea.Model, tea.Cmd) {
+	param := strings.TrimSpace(m.attachParam1)
+	if param == "" {
+		if m.attachType == "disk" {
+			m.flashf("✗ target device required (e.g. vdb)")
+		} else {
+			m.flashf("✗ MAC address required")
+		}
+		return m, nil
+	}
+	domain := m.attachDomain
+	client := m.client
+	devType := m.attachType
+	m.attachStage = 0
+	return m, func() tea.Msg {
+		var err error
+		if devType == "disk" {
+			err = client.DetachDisk(domain, param)
+		} else {
+			err = client.DetachNIC(domain, param)
+		}
+		return actionResultMsg{uri: client.URI(), action: "detach " + devType, name: domain, err: err}
+	}
 }
 
 // execCommand interprets a `:` command and switches view mode.
