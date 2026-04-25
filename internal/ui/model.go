@@ -1106,6 +1106,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		// Structured info pane. Raw XML is one keypress away via "x".
+		m.warnSingleTargetWithMarks("enter")
 		if d, ok := m.currentDomain(); ok {
 			m.mode = viewInfo
 			m.infoFor = d.Name
@@ -1229,6 +1230,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// SSH into the guest. Requires a validated IP address — reject
 		// anything net.ParseIP does not accept, to stop a hostile DHCP
 		// lease / ARP entry from smuggling ssh options.
+		m.warnSingleTargetWithMarks("ssh")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning && d.IP != "" {
 			if net.ParseIP(d.IP) == nil {
 				m.flashf("✗ ssh %s: refusing invalid IP %q", d.Name, d.IP)
@@ -1241,6 +1243,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "M":
 		// Live migrate the selected running VM to another host. Opens
 		// the destination picker.
+		m.warnSingleTargetWithMarks("migrate")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			if len(m.migrateCandidates()) == 0 {
 				m.flashf("no other hosts configured — add one in :host first")
@@ -1255,6 +1258,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "C":
 		// Clone the selected stopped VM. Opens an inline name prompt
 		// in the status bar; Enter kicks off the background job.
+		m.warnSingleTargetWithMarks("clone")
 		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
 			m.cloneFrom = true
 			m.cloneSrc = d.Name
@@ -1266,6 +1270,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "A":
 		// Hot-plug a device to the selected running VM.
+		m.warnSingleTargetWithMarks("attach")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.attachDomain = d.Name
 			m.attachStage = 1
@@ -1275,6 +1280,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "c":
+		m.warnSingleTargetWithMarks("console")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			return m, m.runConsole(d.Name)
 		}
@@ -1283,12 +1289,14 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		// Graphical console via virt-viewer — Linux AND Windows friendly.
 		// Launched detached so dirt remains usable while the window is open.
+		m.warnSingleTargetWithMarks("viewer")
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			return m, m.runViewer(d.Name)
 		}
 		return m, nil
 
 	case "e":
+		m.warnSingleTargetWithMarks("edit")
 		if d, ok := m.currentDomain(); ok {
 			return m, m.runEdit(d.Name)
 		}
@@ -1296,6 +1304,7 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "x":
 		// Open the raw XML detail view.
+		m.warnSingleTargetWithMarks("xml")
 		if d, ok := m.currentDomain(); ok {
 			m.mode = viewDetail
 			m.detailFor = d.Name
@@ -1803,6 +1812,15 @@ func (m *Model) boundSelection() {
 func (m *Model) flashf(format string, args ...any) {
 	m.flash = fmt.Sprintf(format, args...)
 	m.flashUntil = time.Now().Add(3 * time.Second)
+}
+
+// warnSingleTargetWithMarks flashes a notice when the master fires a
+// single-target action while marks exist. The action still proceeds
+// on the cursor row — informational only, never blocking.
+func (m *Model) warnSingleTargetWithMarks(action string) {
+	if m.markCount() > 0 {
+		m.flashf("%s is single-target — acting on cursor row", action)
+	}
 }
 
 // ──────────────────────────── Marks ──────────────────────────────────────────
