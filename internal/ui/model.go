@@ -715,6 +715,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, loadBridgeStatsCmd(m.client.URI(), bridges)
 
+	case configEditedMsg:
+		if msg.err != nil {
+			m.flashf("✗ config edit: %v", msg.err)
+			return m, nil
+		}
+		// Re-read and re-apply. Failures here keep the running session
+		// alive — the master can fix the file and try again.
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			m.flashf("✗ config reload: %v", err)
+			return m, nil
+		}
+		m.sortColumn = sortColumnFromID(cfg.List.SortBy)
+		m.sortDesc = cfg.List.SortReverse
+		m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
+		ApplyTheme(cfg.Theme)
+		m.flashf("✓ config reloaded (%s)", msg.path)
+		return m, nil
+
 	case bridgeStatsMsg:
 		if m.stale(msg.uri) {
 			return m, nil
@@ -2649,6 +2668,11 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.mode = viewColumns
 		m.columnsSel = 0
 		return m, nil
+	case "config":
+		// Open the config file in $EDITOR, suspending dirt for the
+		// duration. On exit the file is re-read and runtime state
+		// (theme, column visibility, sort) re-applied.
+		return m, m.runConfigEdit()
 	case "mark", "mark all", "mark invert", "mark none", "unmark":
 		return m.execMarkCommand(cmd), nil
 	case "resume":
@@ -3408,6 +3432,29 @@ func (m Model) runEdit(name string) tea.Cmd {
 		}
 		return actionResultMsg{uri: uri, action: "edit", name: name}
 	})
+}
+
+// runConfigEdit suspends Bubble Tea and opens the config file in
+// $EDITOR. On exit, fires a configReloadedMsg so the new file is
+// re-read and the theme / column visibility / sort defaults
+// re-apply without restarting dirt.
+func (m Model) runConfigEdit() tea.Cmd {
+	path := config.ConfigPath()
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	cmd := exec.Command(editor, path)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return configEditedMsg{path: path, err: err}
+	})
+}
+
+// configEditedMsg lands when the editor exits. Triggers a re-read of
+// the config file and re-application of theme / sort / columns.
+type configEditedMsg struct {
+	path string
+	err  error
 }
 
 // runViewer launches virt-viewer as a detached GUI subprocess so the

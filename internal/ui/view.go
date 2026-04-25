@@ -299,6 +299,7 @@ var paletteCommands = []paletteCommand{
 	{"perf", "graphs", nil},
 	{"jobs", "background jobs", nil},
 	{"columns", "show / hide table columns", nil},
+	{"config", "edit config in $EDITOR", nil},
 	{"export", "export VM list to file", []paletteArg{
 		{name: "csv"},
 		{name: "json"},
