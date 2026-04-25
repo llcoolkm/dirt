@@ -16,6 +16,7 @@ const (
 	netBridgeW  = 12
 	netForwardW = 10
 	netLeasesW  = 7
+	netRateW    = 8
 )
 
 // networksView renders the libvirt networks list.
@@ -31,6 +32,8 @@ func (m Model) networksView() string {
 		padRight("BRIDGE", netBridgeW),
 		padRight("FORWARD", netForwardW),
 		padLeft("LEASES", netLeasesW),
+		padLeft("↓ RX", netRateW),
+		padLeft("↑ TX", netRateW),
 	}, "  "))
 
 	rows := []string{header}
@@ -40,7 +43,7 @@ func (m Model) networksView() string {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no networks"))
 	} else {
 		for i, n := range m.networks {
-			rows = append(rows, renderNetworkRow(n, i == m.networksSel))
+			rows = append(rows, renderNetworkRow(n, m.bridgeRates[n.Bridge], i == m.networksSel))
 		}
 	}
 
@@ -51,7 +54,7 @@ func (m Model) networksView() string {
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
 }
 
-func renderNetworkRow(n lv.Network, selected bool) string {
+func renderNetworkRow(n lv.Network, rate bridgeRate, selected bool) string {
 	state := "inactive"
 	style := stateShutoff
 	if n.Active {
@@ -68,6 +71,12 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 	}
 	stateColored := style.Render(padRight(state, netStateW))
 
+	rxStr, txStr := "—", "—"
+	if rate.available {
+		rxStr = formatRate(rate.rxBps)
+		txStr = formatRate(rate.txBps)
+	}
+
 	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
 		fg.Render(padRight(truncate(n.Name, netNameW), netNameW)),
@@ -76,6 +85,8 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 		fg.Render(padRight(truncate(n.Bridge, netBridgeW), netBridgeW)),
 		fg.Render(padRight(truncate(n.Forward, netForwardW), netForwardW)),
 		fg.Render(padLeft(leases, netLeasesW)),
+		fg.Render(padLeft(rxStr, netRateW)),
+		fg.Render(padLeft(txStr, netRateW)),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {

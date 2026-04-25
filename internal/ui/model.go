@@ -144,7 +144,8 @@ type Model struct {
 	snapshotName  string              // text being typed for the new name
 
 	// Networks view state.
-	networks    []lv.Network
+	networks      []lv.Network
+	bridgeRates   map[string]bridgeRate // keyed by bridge name
 	networksSel int
 	networksErr error
 
@@ -383,6 +384,11 @@ type snapshotsLoadedMsg struct {
 	err    error
 }
 
+type bridgeStatsMsg struct {
+	uri   string
+	stats []lv.BridgeStats
+}
+
 type networksLoadedMsg struct {
 	uri  string
 	list []lv.Network
@@ -495,6 +501,15 @@ func loadNetworksCmd(c *lv.Client) tea.Cmd {
 	return func() tea.Msg {
 		list, err := c.ListNetworks()
 		return networksLoadedMsg{uri: uri, list: list, err: err}
+	}
+}
+
+// loadBridgeStatsCmd reads /sys/class/net/<bridge>/statistics for
+// each named bridge. Remote libvirt URIs simply produce OK=false
+// entries, since /sys is the local host's view.
+func loadBridgeStatsCmd(uri string, names []string) tea.Cmd {
+	return func() tea.Msg {
+		return bridgeStatsMsg{uri: uri, stats: lv.ReadBridgeStats(names)}
 	}
 }
 
@@ -685,6 +700,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.networksSel < 0 {
 			m.networksSel = 0
 		}
+		// Kick off a host-side bridge-stats read for every active
+		// network. Remote libvirt URIs will get OK=false back and
+		// render "—" — no special-casing needed.
+		bridges := make([]string, 0, len(m.networks))
+		for _, n := range m.networks {
+			if n.Active && n.Bridge != "" {
+				bridges = append(bridges, n.Bridge)
+			}
+		}
+		return m, loadBridgeStatsCmd(m.client.URI(), bridges)
+
+	case bridgeStatsMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
+		m.updateBridgeStats(msg.stats)
 		return m, nil
 
 	case leasesLoadedMsg:
@@ -2003,6 +2034,50 @@ func (m Model) doSpace(doms []lv.Domain) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// bridgeRate caches the previous BridgeStats reading for a single
+// bridge along with the wall-clock time it was taken — successive
+// readings divide the byte / packet delta by the elapsed seconds to
+// produce a rate. Negative deltas (counter wrap, interface reset)
+// reset the cache rather than emitting bogus values.
+type bridgeRate struct {
+	prev      lv.BridgeStats
+	prevAt    time.Time
+	rxBps     float64
+	txBps     float64
+	rxPps     float64
+	txPps     float64
+	available bool
+}
+
+// updateBridgeStats folds a fresh BridgeStats batch into the rate
+// cache. Time deltas under 100 ms are treated as no-progress so we
+// don't divide by tiny numbers.
+func (m *Model) updateBridgeStats(batch []lv.BridgeStats) {
+	if m.bridgeRates == nil {
+		m.bridgeRates = make(map[string]bridgeRate)
+	}
+	now := time.Now()
+	for _, s := range batch {
+		if !s.OK {
+			delete(m.bridgeRates, s.Name)
+			continue
+		}
+		prev, has := m.bridgeRates[s.Name]
+		next := bridgeRate{prev: s, prevAt: now}
+		if has && !prev.prevAt.IsZero() {
+			dt := now.Sub(prev.prevAt).Seconds()
+			if dt >= 0.1 && s.RxBytes >= prev.prev.RxBytes && s.TxBytes >= prev.prev.TxBytes {
+				next.rxBps = float64(s.RxBytes-prev.prev.RxBytes) / dt
+				next.txBps = float64(s.TxBytes-prev.prev.TxBytes) / dt
+				next.rxPps = float64(s.RxPkts-prev.prev.RxPkts) / dt
+				next.txPps = float64(s.TxPkts-prev.prev.TxPkts) / dt
+				next.available = true
+			}
+		}
+		m.bridgeRates[s.Name] = next
+	}
 }
 
 // bulkFailSummary renders up to three failure entries from a bulk
