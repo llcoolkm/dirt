@@ -34,17 +34,17 @@ var (
 	graphStyleWrite = lipgloss.NewStyle().Foreground(colCrashed) // red
 )
 
-// Per-vCPU colour cycle (up to 8 vCPUs get distinct colours).
-var vcpuColors = []lipgloss.Color{
-	lipgloss.Color("10"), // green
-	lipgloss.Color("11"), // yellow
-	lipgloss.Color("9"),  // red
-	lipgloss.Color("13"), // magenta
-	lipgloss.Color("14"), // cyan
-	lipgloss.Color("12"), // blue
-	lipgloss.Color("208"), // orange
-	lipgloss.Color("15"), // white
-}
+// vcpuColors is the per-vCPU graph colour cycle. Populated by
+// rebuildStyles on theme apply so it tracks the active palette.
+var vcpuColors []lipgloss.Color
+
+// chartAxisStyle and chartLabelStyle colour the X/Y axes and value
+// labels of the ntcharts time-series charts. Populated by
+// rebuildStyles, themed via colMuted.
+var (
+	chartAxisStyle  lipgloss.Style
+	chartLabelStyle lipgloss.Style
+)
 
 // graphsView renders the performance graphs pane.
 func (m Model) graphsView() string {
@@ -183,6 +183,7 @@ func renderVCPUChart(h *domHistory, w int, interval time.Duration) string {
 		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
 		timeserieslinechart.WithYLabelFormatter(wrapLabelFmt(pctLabelFmt)),
+		timeserieslinechart.WithAxesStyles(chartAxisStyle, chartLabelStyle),
 	)
 
 	for i := 0; i < n; i++ {
@@ -410,6 +411,7 @@ func buildChart(data []float64, w, h int, yMin, yMax float64, fixedY bool,
 		timeserieslinechart.WithTimeRange(tMin, now),
 		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
+		timeserieslinechart.WithAxesStyles(chartAxisStyle, chartLabelStyle),
 	}
 	if fixedY {
 		opts = append(opts, timeserieslinechart.WithYRange(yMin, yMax))
@@ -469,6 +471,7 @@ func buildOverlayChart(dataA, dataB []float64, w, h int,
 		timeserieslinechart.WithTimeRange(tMin, now),
 		timeserieslinechart.WithXYSteps(5, 3),
 		timeserieslinechart.WithXLabelFormatter(relativeXLabelFmt(now)),
+		timeserieslinechart.WithAxesStyles(chartAxisStyle, chartLabelStyle),
 	}
 	if labelFmt != nil {
 		opts = append(opts,

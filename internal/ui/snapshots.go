@@ -198,12 +198,13 @@ func renderSnapshotRow(s lv.DomainSnapshot, prefix string, selected bool) string
 	// is aware of the multi-byte tree glyphs so truncation is correct.
 	name := truncate(prefix+s.Name, snapNameW)
 
+	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
-		padRight(name, snapNameW),
+		fg.Render(padRight(name, snapNameW)),
 		state,
-		padLeft(size, snapSizeW),
-		padRight(current, snapCurrentW),
-		padRight(when, snapWhenW),
+		fg.Render(padLeft(size, snapSizeW)),
+		fg.Render(padRight(current, snapCurrentW)),
+		fg.Render(padRight(when, snapWhenW)),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {

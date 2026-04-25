@@ -68,13 +68,14 @@ func renderNetworkRow(n lv.Network, selected bool) string {
 	}
 	stateColored := style.Render(padRight(state, netStateW))
 
+	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
-		padRight(truncate(n.Name, netNameW), netNameW),
+		fg.Render(padRight(truncate(n.Name, netNameW), netNameW)),
 		stateColored,
-		padRight(auto, netAutoW),
-		padRight(truncate(n.Bridge, netBridgeW), netBridgeW),
-		padRight(truncate(n.Forward, netForwardW), netForwardW),
-		padLeft(leases, netLeasesW),
+		fg.Render(padRight(auto, netAutoW)),
+		fg.Render(padRight(truncate(n.Bridge, netBridgeW), netBridgeW)),
+		fg.Render(padRight(truncate(n.Forward, netForwardW), netForwardW)),
+		fg.Render(padLeft(leases, netLeasesW)),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {
@@ -104,6 +105,7 @@ func (m Model) leasesView() string {
 	} else if len(m.leases) == 0 {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no active leases"))
 	} else {
+		fg := lipgloss.NewStyle().Foreground(colFG)
 		for _, l := range m.leases {
 			hostname := l.Hostname
 			if hostname == "" {
@@ -114,10 +116,10 @@ func (m Model) leasesView() string {
 				expiry = l.Expiry.Format("2006-01-02 15:04:05")
 			}
 			row := " " + strings.Join([]string{
-				padRight(truncate(hostname, 20), 20),
-				padRight(l.IP, 18),
-				padRight(l.MAC, 19),
-				padRight(expiry, 20),
+				fg.Render(padRight(truncate(hostname, 20), 20)),
+				fg.Render(padRight(l.IP, 18)),
+				fg.Render(padRight(l.MAC, 19)),
+				fg.Render(padRight(expiry, 20)),
 			}, "  ")
 			rows = append(rows, row)
 		}

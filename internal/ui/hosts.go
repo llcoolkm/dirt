@@ -254,11 +254,12 @@ func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected
 	if p.state == probeOK {
 		domainsStr = fmt.Sprintf("%d", p.domains)
 	}
+	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
-		padRight(truncate(h.Name, hostsNameW), hostsNameW),
-		padRight(truncate(h.URI, hostsURIW), hostsURIW),
+		fg.Render(padRight(truncate(h.Name, hostsNameW), hostsNameW)),
+		fg.Render(padRight(truncate(h.URI, hostsURIW), hostsURIW)),
 		statusStyle.Render(padRight(statusStr, hostsStatusW)),
-		padLeft(domainsStr, hostsDomainsW),
+		fg.Render(padLeft(domainsStr, hostsDomainsW)),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {

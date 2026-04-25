@@ -85,13 +85,14 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 	}
 	usageBar := storageColorBar(usagePct, poolUsageW-7) + pctStr
 
+	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
-		padRight(truncate(p.Name, poolNameW), poolNameW),
+		fg.Render(padRight(truncate(p.Name, poolNameW), poolNameW)),
 		stateColored,
-		padRight(truncate(p.Type, poolTypeW), poolTypeW),
-		padLeft(cap, poolCapW),
-		padLeft(alloc, poolAllocW),
-		padLeft(free, poolFreeW),
+		fg.Render(padRight(truncate(p.Type, poolTypeW), poolTypeW)),
+		fg.Render(padLeft(cap, poolCapW)),
+		fg.Render(padLeft(alloc, poolAllocW)),
+		fg.Render(padLeft(free, poolFreeW)),
 		usageBar,
 	}
 	row := strings.Join(cols, "  ")
@@ -187,12 +188,13 @@ func volumeStatusBar(m Model, width int) string {
 }
 
 func renderVolumeRow(v lv.StorageVolume, selected bool) string {
+	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
-		padRight(truncate(v.Name, volNameW), volNameW),
-		padRight(truncate(v.Type, volTypeW), volTypeW),
-		padLeft(formatBytes(float64(v.Capacity)), volCapW),
-		padLeft(formatBytes(float64(v.Allocation)), volAllocW),
-		padRight(truncate(v.Path, volPathW), volPathW),
+		fg.Render(padRight(truncate(v.Name, volNameW), volNameW)),
+		fg.Render(padRight(truncate(v.Type, volTypeW), volTypeW)),
+		fg.Render(padLeft(formatBytes(float64(v.Capacity)), volCapW)),
+		fg.Render(padLeft(formatBytes(float64(v.Allocation)), volAllocW)),
+		fg.Render(padRight(truncate(v.Path, volPathW), volPathW)),
 	}
 	row := strings.Join(cols, "  ")
 	if selected {
