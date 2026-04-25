@@ -70,6 +70,12 @@ func (m Model) infoView() string {
 		title += headerLabel.Render(fmt.Sprintf("  ·  line %d-%d / %d",
 			m.infoScroll+1, end, total))
 	}
+	// Right-aligned mini-sparklines: CPU% and memory used%. Filled
+	// from the cursor VM's history, so they live-update on every
+	// tick. Drops silently if the terminal is too narrow.
+	if h := m.history[m.infoUUID()]; h != nil {
+		title = withInfoMiniGraphs(title, h, width-borderWidth-2)
+	}
 
 	pane := listBox.Width(width - borderWidth).Render(
 		lipgloss.JoinVertical(lipgloss.Left,
@@ -82,6 +88,43 @@ func (m Model) infoView() string {
 		key("x") + " xml  " + key("esc") + " back")
 
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
+}
+
+// infoUUID looks up the cursor domain's UUID for history lookup.
+func (m Model) infoUUID() string {
+	if m.snap == nil {
+		return ""
+	}
+	for _, d := range m.snap.Domains {
+		if d.Name == m.infoFor {
+			return d.UUID
+		}
+	}
+	return ""
+}
+
+// withInfoMiniGraphs appends right-aligned CPU and memory sparklines
+// to the info-pane title. Each is 16 cells wide, prefixed by its
+// label and current percent value. Drops silently when there is no
+// room.
+func withInfoMiniGraphs(title string, h *domHistory, inner int) string {
+	const sparkW = 16
+	cpuSpark := sparkline(tail(h.cpu, sparkW))
+	memSpark := sparkline(tail(h.memUsedPct, sparkW))
+	cpuCur := fmt.Sprintf("%5.1f%%", h.currentCPU())
+	memCur := "  —  "
+	if len(h.memUsedPct) > 0 {
+		memCur = fmt.Sprintf("%5.1f%%", h.memUsedPct[len(h.memUsedPct)-1])
+	}
+	tag := headerLabel.Render("CPU ") + headerValue.Render(cpuSpark+" "+cpuCur) +
+		headerLabel.Render("   MEM ") + headerValue.Render(memSpark+" "+memCur)
+	tagW := lipgloss.Width(tag)
+	titleW := lipgloss.Width(title)
+	gap := inner - titleW - tagW - 1
+	if gap < 2 {
+		return title
+	}
+	return title + strings.Repeat(" ", gap) + tag
 }
 
 // renderInfoBody produces the list of lines for the info pane. Kept
