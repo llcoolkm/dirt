@@ -3330,6 +3330,9 @@ func (m Model) maybeFetchSwap() tea.Cmd {
 	if !ok || d.State != lv.StateRunning {
 		return nil
 	}
+	if m.client == nil {
+		return nil
+	}
 	cached, has := m.swap[d.Name]
 	if has && time.Since(cached.FetchedAt) < swapTTL {
 		return nil
@@ -3344,7 +3347,7 @@ func (m Model) maybeFetchSwap() tea.Cmd {
 // unavailable, so we probe *every* running VM whose cached value is
 // stale — otherwise non-focused rows would show "—" forever.
 func (m Model) maybeFetchGuestUptime() tea.Cmd {
-	if m.snap == nil {
+	if m.snap == nil || m.client == nil {
 		return nil
 	}
 	// Remote: probe all running VMs.
