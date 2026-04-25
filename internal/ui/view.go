@@ -151,16 +151,32 @@ func (m Model) statusView() string {
 		return statusBar.Width(width).Render(" " + prompt)
 	}
 
+	// Typed confirmation for bulk-undefine above the ceiling.
+	if m.confirmTyping {
+		cursor := lipgloss.NewStyle().Foreground(colAccent).Render("█")
+		prompt := errorStyle.Render(fmt.Sprintf(" ⚠ type “%s” to confirm (add “ delete” to also remove storage): ",
+			m.confirmTypingExpect)) +
+			m.confirmTypingInput + cursor
+		return statusBar.Width(width).Render(prompt)
+	}
+
 	// Confirm dialog takes precedence after filter.
 	if m.confirming {
+		target := m.confirmName
+		if m.confirmBulk {
+			target = fmt.Sprintf("%d VMs", len(m.confirmTargets))
+			if h := m.marksHiddenByFilter(); h > 0 {
+				target = fmt.Sprintf("%d VMs (%d hidden by filter)", len(m.confirmTargets), h)
+			}
+		}
 		if m.confirmAction == "undefine" {
-			msg := errorStyle.Render(fmt.Sprintf(" ⚠ undefine %s? ", m.confirmName)) +
+			msg := errorStyle.Render(fmt.Sprintf(" ⚠ undefine %s? ", target)) +
 				keyHint.Render("y") + statusBar.Render(" keep disks  ") +
 				keyHint.Render("d") + statusBar.Render(" delete disks too  ") +
 				statusBar.Render("any other key to cancel")
 			return statusBar.Width(width).Render(msg)
 		}
-		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s %s? ", m.confirmAction, m.confirmName)) +
+		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s %s? ", m.confirmAction, target)) +
 			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
 		return statusBar.Width(width).Render(msg)
 	}
@@ -173,40 +189,127 @@ func (m Model) statusView() string {
 	// Active background jobs take precedence over the key-hint line
 	// so they're always visible. :jobs gives the full view.
 	if seg := m.jobsStatusSegment(width - 2); seg != "" {
-		return statusBar.Width(width).Render(" " + seg)
+		return statusBar.Width(width).Render(withMarkIndicator(" "+seg, m, width))
 	}
 
-	return statusBar.Width(width).Render(" " + m.shortHelp())
+	return statusBar.Width(width).Render(withMarkIndicator(" "+m.shortHelp(), m, width))
+}
+
+// withMarkIndicator pins a vim-style tag to the right edge of the
+// status bar. Shows a pending numeric prefix and/or the mark count.
+// On narrow terminals the left side is truncated rather than the
+// indicator — losing hints is less harmful than hiding the mode.
+func withMarkIndicator(left string, m Model, width int) string {
+	parts := []string{}
+	if m.pendingCount > 0 {
+		parts = append(parts, keyHint.Render(fmt.Sprintf("%d", m.pendingCount)))
+	}
+	if m.markCount() > 0 {
+		parts = append(parts, markStyle.Render(fmt.Sprintf("✓ %d marked", m.markCount())))
+	}
+	if len(parts) == 0 {
+		return left
+	}
+	tag := strings.Join(parts, "  ")
+	tagW := ansi.StringWidth(tag)
+	leftW := ansi.StringWidth(left)
+	gap := width - leftW - tagW - 1
+	if gap < 1 {
+		budget := width - tagW - 2
+		if budget < 0 {
+			budget = 0
+		}
+		left = ansi.Truncate(left, budget, "")
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + tag + " "
 }
 
 // paletteCommand is one entry in the `:` command hint — a canonical
-// name and the short description shown after it.
+// name, a short description, and optional sub-arguments that become
+// the live hint set after the master types the command name and a
+// space (e.g. `:theme `).
 type paletteCommand struct {
 	name string
 	desc string
+	args []paletteArg
+}
+
+// paletteArg is a single sub-argument hint shown after `<name> `.
+type paletteArg struct {
+	name string
+	desc string
+}
+
+// sortArgs / themeArgs / markArgs populate the sub-hint lists for
+// commands that take a fixed vocabulary. Derived from authoritative
+// sources (vmColumns / themes) at init time, not hand-maintained.
+var (
+	markArgs = []paletteArg{
+		{"all", "mark every visible row"},
+		{"invert", "flip marks on visible rows"},
+		{"none", "clear all marks"},
+	}
+	sortArgs  = buildSortArgs()
+	themeArgs = buildThemeArgs()
+)
+
+func buildSortArgs() []paletteArg {
+	out := make([]paletteArg, 0, len(vmColumns))
+	for _, c := range vmColumns {
+		if c.sort == 0 {
+			continue
+		}
+		out = append(out, paletteArg{name: c.id})
+	}
+	return out
+}
+
+func buildThemeArgs() []paletteArg {
+	out := make([]paletteArg, 0, len(themes))
+	for _, n := range themeNames() {
+		out = append(out, paletteArg{name: n})
+	}
+	return out
 }
 
 // paletteCommands lists every `:`-command dirt accepts, in the order
 // the hint should display them. Only canonical names are listed; the
 // aliases (vms, snapshot, quit, …) are handled by execCommand itself.
 var paletteCommands = []paletteCommand{
-	{"vm", "VM list"},
-	{"snap", "snapshots"},
-	{"net", "networks"},
-	{"pool", "pools"},
-	{"host", "hosts"},
-	{"perf", "graphs"},
-	{"jobs", "background jobs"},
-	{"help", "help"},
-	{"q", "quit"},
+	{"vm", "VM list", nil},
+	{"snap", "snapshots", nil},
+	{"net", "networks", nil},
+	{"pool", "pools", nil},
+	{"host", "hosts", nil},
+	{"perf", "graphs", nil},
+	{"jobs", "background jobs", nil},
+	{"mark", "mark [all|invert|none]", markArgs},
+	{"sort", "sort [col] [desc]", sortArgs},
+	{"theme", "theme [name]", themeArgs},
+	{"help", "help", nil},
+	{"q", "quit", nil},
 }
 
 // commandPaletteHint renders the dynamic menu shown next to the `:`
-// prompt. It lists every command whose canonical name starts with the
-// already-typed prefix, so as the master types the list narrows. If
-// nothing matches, the full menu is shown in a dimmer style so the
-// master can see what is actually on offer.
+// prompt. Without a space it lists matching command names; once the
+// master has typed `<name> ` it switches to that command's sub-arg
+// menu (theme names, sort columns, mark subcommands). Unknown-
+// command or no-match branches still show something so discovery
+// never dead-ends.
 func commandPaletteHint(prefix string) string {
+	// Sub-arg mode: `<name>` (possibly partial sub-arg) with a space.
+	if idx := strings.Index(prefix, " "); idx >= 0 {
+		base := prefix[:idx]
+		sub := strings.TrimLeft(prefix[idx+1:], " ")
+		for _, c := range paletteCommands {
+			if c.name == base && len(c.args) > 0 {
+				return renderArgHints(base, sub, c.args)
+			}
+		}
+		// The command has no sub-args — fall through to the "no
+		// match" styling so the master sees the full palette again.
+	}
 	matches := paletteCommands[:0:0]
 	for _, c := range paletteCommands {
 		if strings.HasPrefix(c.name, prefix) {
@@ -214,8 +317,6 @@ func commandPaletteHint(prefix string) string {
 		}
 	}
 	if len(matches) == 0 {
-		// No prefix match — show everything so the master has a
-		// fighting chance of discovering the right name.
 		parts := make([]string, 0, len(paletteCommands))
 		for _, c := range paletteCommands {
 			parts = append(parts, headerLabel.Render(":"+c.name))
@@ -224,8 +325,6 @@ func commandPaletteHint(prefix string) string {
 	}
 	parts := make([]string, 0, len(matches))
 	for _, c := range matches {
-		// Render the typed prefix with keyHint so the matched head
-		// stands out from the grey tail.
 		var label string
 		if prefix != "" {
 			label = keyHint.Render(":"+prefix) + headerLabel.Render(c.name[len(prefix):])
@@ -237,31 +336,72 @@ func commandPaletteHint(prefix string) string {
 	return strings.Join(parts, headerLabel.Render("  ·  "))
 }
 
-// shortHelp is the always-on key hint line.
-func (m Model) shortHelp() string {
-	hints := []string{
-		key("j/k") + " nav",
-		key("s") + " start",
-		key("S") + " stop",
-		key("D") + " kill",
-		key("R") + " reboot",
-		key("p") + " pause",
-		key("o") + " ssh",
-		key("M") + " migrate",
-		key("C") + " clone",
-		key("A") + " attach",
-		key("c") + " console",
-		key("v") + " viewer",
-		key("e") + " edit",
-		key("Enter") + " info",
-		key("x") + " xml",
-		key("U") + " undefine",
-		key(":") + " cmd",
-		key("/") + " filter",
-		key("?") + " help",
-		key("q") + " quit",
+// renderArgHints lists sub-args whose name starts with sub; on no
+// match the full arg menu is shown dimly so the master can still
+// discover valid choices.
+func renderArgHints(base, sub string, args []paletteArg) string {
+	matches := args[:0:0]
+	for _, a := range args {
+		if strings.HasPrefix(a.name, sub) {
+			matches = append(matches, a)
+		}
 	}
-	return statusBar.Render(strings.Join(hints, "  "))
+	if len(matches) == 0 {
+		parts := make([]string, 0, len(args))
+		for _, a := range args {
+			parts = append(parts, headerLabel.Render(a.name))
+		}
+		return keyHint.Render(":"+base+" ") +
+			errorStyle.Render("(no match) ") +
+			strings.Join(parts, headerLabel.Render("  "))
+	}
+	parts := make([]string, 0, len(matches))
+	for _, a := range matches {
+		var label string
+		if sub != "" {
+			label = keyHint.Render(sub) + headerLabel.Render(a.name[len(sub):])
+		} else {
+			label = headerLabel.Render(a.name)
+		}
+		if a.desc != "" {
+			label += " " + headerLabel.Render(a.desc)
+		}
+		parts = append(parts, label)
+	}
+	return keyHint.Render(":"+base+" ") + strings.Join(parts, headerLabel.Render("  ·  "))
+}
+
+// shortHelp is the always-on key hint line. Each description is
+// wrapped in statusBar style explicitly because lipgloss closes
+// inner styled spans (key()) with a `\x1b[m` reset that breaks any
+// outer fg — the descriptions would otherwise revert to the
+// terminal default and look grey under coloured themes.
+func (m Model) shortHelp() string {
+	hint := func(k, d string) string { return key(k) + statusBar.Render(d) }
+	hints := []string{
+		hint("j/k", " nav"),
+		hint("s", " start"),
+		hint("S", " stop"),
+		hint("D", " kill"),
+		hint("R", " reboot"),
+		hint("p", " pause"),
+		hint("o", " ssh"),
+		hint("M", " migrate"),
+		hint("C", " clone"),
+		hint("A", " attach"),
+		hint("c", " console"),
+		hint("v", " viewer"),
+		hint("e", " edit"),
+		hint("Enter", " info"),
+		hint("x", " xml"),
+		hint("U", " undefine"),
+		hint("space", " mark"),
+		hint(":", " cmd"),
+		hint("/", " filter"),
+		hint("?", " help"),
+		hint("q", " quit"),
+	}
+	return strings.Join(hints, statusBar.Render("  "))
 }
 
 

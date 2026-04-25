@@ -233,11 +233,22 @@ func (m Model) listView() string {
 		end = len(doms)
 	}
 
+	// Viewport indicator, right-aligned on the header row when the
+	// table is longer than the visible window. Dropped silently if
+	// the terminal is too narrow to host it alongside the columns.
+	if len(doms) > available {
+		pos := fmt.Sprintf("%d–%d/%d", m.offset+1, end, len(doms))
+		gap := inner - lipgloss.Width(header) - lipgloss.Width(pos)
+		if gap >= 2 {
+			header = header + strings.Repeat(" ", gap) + headerLabel.Render(pos)
+		}
+	}
+
 	rows := make([]string, 0, end-m.offset+1)
 	rows = append(rows, header)
 	for i := m.offset; i < end; i++ {
 		d := doms[i]
-		row := renderDataRow(cols, d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, nCols)
+		row := renderDataRow(cols, d, m.history[d.UUID], m.guestUptime[d.Name], i == m.selected, m.isMarked(d.UUID), nCols)
 		rows = append(rows, row)
 	}
 	return listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left, rows...))
@@ -274,8 +285,10 @@ func renderHeaderRow(cols []column, active sortColumn, desc bool, nCols int) str
 // renderDataRow renders one VM row, optionally highlighted. Only the
 // first nCols of cols are shown. The STATE column uses a state-
 // specific colour when not selected; for selected rows the colour is
-// stripped so the rowSelected style can apply its own fg/bg.
-func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime, selected bool, nCols int) string {
+// stripped so the rowSelected style can apply its own fg/bg. The
+// leading char doubles as the mark glyph: "✓" for marked rows, space
+// otherwise — so marks stay visible without stealing column width.
+func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime, selected, marked bool, nCols int) string {
 	if nCols > len(cols) {
 		nCols = len(cols)
 	}
@@ -288,15 +301,29 @@ func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime
 		} else {
 			padded = padLeft(raw, c.width)
 		}
-		// Colour the STATE cell by the domain state for non-selected rows.
-		if c.sort == sortByState && !selected {
-			padded = stateStyleFor(d.State).Render(padded)
+		// Colour the STATE cell by the domain state for non-selected
+		// rows; everything else gets the theme's default foreground so
+		// monochrome / phosphor / shades themes can colour the table
+		// proper, not just the state column.
+		if !selected {
+			if c.sort == sortByState {
+				padded = stateStyleFor(d.State).Render(padded)
+			} else {
+				padded = lipgloss.NewStyle().Foreground(colFG).Render(padded)
+			}
 		}
 		cells = append(cells, padded)
 	}
 	row := strings.Join(cells, "  ")
 	if selected {
-		return rowSelected.Render(" " + row)
+		prefix := " "
+		if marked {
+			prefix = "✓"
+		}
+		return rowSelected.Render(prefix + row)
+	}
+	if marked {
+		return markStyle.Render("✓") + row
 	}
 	return " " + row
 }

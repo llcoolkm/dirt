@@ -18,6 +18,7 @@ var (
 	colMemUsed  lipgloss.TerminalColor = lipgloss.Color("10")
 	colMemCache lipgloss.TerminalColor = lipgloss.Color("11")
 	colSwap     lipgloss.TerminalColor = lipgloss.Color("13")
+	colMark     lipgloss.TerminalColor = lipgloss.Color("14")
 )
 
 // Box styles.
@@ -53,6 +54,10 @@ var (
 	rowSelected = lipgloss.NewStyle().
 			Background(colSelectBG).
 			Foreground(colSelectFG).
+			Bold(true)
+
+	markStyle = lipgloss.NewStyle().
+			Foreground(colMark).
 			Bold(true)
 
 	stateRunning = lipgloss.NewStyle().Foreground(colRunning)

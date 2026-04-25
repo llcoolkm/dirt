@@ -19,6 +19,12 @@ import (
 // defaultRefreshInterval is the fall-back tick rate when none is configured.
 const defaultRefreshInterval = 1 * time.Second
 
+// bulkUndefineCeiling is the threshold at which the normal y/d confirm
+// prompt is replaced by a typed-phrase confirmation. Above this, a
+// stray keystroke cannot annihilate a large set.
+// TODO: expose via config once :config lands.
+const bulkUndefineCeiling = 20
+
 // viewMode is the high-level UI state — which screen the user is currently on.
 type viewMode int
 
@@ -89,6 +95,20 @@ type Model struct {
 	// Selection (index into the filtered, sorted list).
 	selected int
 	offset   int // first visible row
+
+	// Marks for bulk operations. Keyed by domain UUID so marks
+	// survive sort/filter/refresh until the domain itself disappears.
+	marks map[string]bool
+
+	// Vim-style numeric prefix: digits accumulate here and the next
+	// motion key consumes the count (returning 1 if unset). Reset by
+	// Esc or by the motion that consumes it.
+	pendingCount int
+
+	// Last cursor direction: +1 for downward motions (j/pgdown/…),
+	// -1 for upward (k/pgup/…). SPACE uses this to decide which way
+	// to advance after marking. Zero defaults to +1.
+	lastDir int
 
 	// Filter mode (for the main VM list).
 	filtering bool
@@ -162,8 +182,19 @@ type Model struct {
 
 	// Confirm dialog (for destructive actions).
 	confirming    bool
-	confirmAction string // e.g. "destroy"
-	confirmName   string
+	confirmAction string   // e.g. "destroy"
+	confirmName   string   // single-target mode
+	confirmBulk   bool     // true when confirmTargets holds the set
+	confirmTargets []string // bulk-mode victim list
+
+	// Typed-confirmation state — engaged for irreversible bulk ops
+	// above bulkUndefineCeiling. The master must type the expected
+	// phrase exactly, with an optional " delete" suffix to also
+	// remove storage. Anything else cancels.
+	confirmTyping       bool
+	confirmTypingAction string
+	confirmTypingExpect string
+	confirmTypingInput  string
 
 	// Transient flash message in the status bar.
 	flash      string
@@ -261,6 +292,7 @@ func New(c *lv.Client) Model {
 		guestUptime:     make(map[string]lv.GuestUptime),
 		hostsProbe:      make(map[string]hostProbeStatus),
 		jobs:            make(map[string]*Job),
+		marks:           make(map[string]bool),
 		sortColumn:      sortByState, // running first by default
 		activeColumns:   vmColumns,
 	}
@@ -311,6 +343,16 @@ type actionResultMsg struct {
 	action string
 	name   string
 	err    error
+}
+
+// bulkActionResultMsg is delivered once after a bulk run completes.
+// count is the number of targets attempted; failed lists human-
+// readable per-target errors (at most a few shown in the flash).
+type bulkActionResultMsg struct {
+	uri    string
+	action string
+	count  int
+	failed []string
 }
 
 type detailLoadedMsg struct {
@@ -395,6 +437,22 @@ func actionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd
 	uri := c.URI()
 	return func() tea.Msg {
 		return actionResultMsg{uri: uri, action: action, name: name, err: fn(name)}
+	}
+}
+
+// bulkActionCmd runs fn serially against each name. Libvirt serialises
+// state transitions on its own, and serial execution keeps the flash
+// message and error list deterministic. Returns a single summary msg.
+func bulkActionCmd(c *lv.Client, action string, names []string, fn func(string) error) tea.Cmd {
+	uri := c.URI()
+	return func() tea.Msg {
+		var failed []string
+		for _, n := range names {
+			if err := fn(n); err != nil {
+				failed = append(failed, fmt.Sprintf("%s (%v)", n, err))
+			}
+		}
+		return bulkActionResultMsg{uri: uri, action: action, count: len(names), failed: failed}
 	}
 }
 
@@ -528,6 +586,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.snap = msg.snap
 		m.updateHistory()
+		m.pruneMarks()
 		m.boundSelection()
 		if m.mode == viewGraphs {
 			m.rebuildGraphsCache()
@@ -694,6 +753,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectErrMsg:
 		m.flashf("✗ connect %s: %v", msg.nick, msg.err)
 		return m, nil
+
+	case bulkActionResultMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
+		ok := msg.count - len(msg.failed)
+		switch {
+		case len(msg.failed) == 0:
+			m.flashf("✓ %s %d VMs", msg.action, msg.count)
+		case ok == 0:
+			m.flashf("✗ %s: %d/%d failed — %s",
+				msg.action, len(msg.failed), msg.count, bulkFailSummary(msg.failed))
+		default:
+			m.flashf("%s: %d ok, %d failed — %s",
+				msg.action, ok, len(msg.failed), bulkFailSummary(msg.failed))
+		}
+		// Refresh the snapshot so the table reflects the new states.
+		return m, loadCmd(m.client)
 
 	case actionResultMsg:
 		if m.stale(msg.uri) {
@@ -863,6 +940,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleHostsKey(msg)
 	}
 	switch {
+	case m.confirmTyping:
+		return m.handleTypedConfirmKey(msg)
 	case m.confirming:
 		return m.handleConfirmKey(msg)
 	case m.cloneFrom:
@@ -911,67 +990,95 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = ""
 		return m, nil
 
-	// Sort by column. Same key again toggles direction. Numbers are aligned
-	// with the visible column order in the list table.
-	case "1":
-		m.toggleSort(sortByName)
+	// Mark management for bulk operations. shift+space clears all
+	// marks — unreliable on most terminals, so Esc is the dependable
+	// path and :mark none the palette fallback.
+	case " ":
+		return m.doSpace(doms)
+
+	case "shift+space":
+		m.clearMarks()
 		return m, nil
-	case "2":
-		m.toggleSort(sortByState)
+
+	case "*":
+		m.invertMarksVisible()
 		return m, nil
-	case "3":
-		m.toggleSort(sortByIP)
+
+	// Numeric prefix: digits accumulate a count consumed by the next
+	// motion key. "0" is a digit only when a count is already pending
+	// — otherwise it has no binding, so leading zeros never start a
+	// phantom count.
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		m.accumulateCount(msg.String()[0] - '0')
 		return m, nil
-	case "4":
-		m.toggleSort(sortByOS)
-		return m, nil
-	case "5":
-		m.toggleSort(sortByVCPU)
-		return m, nil
-	case "6":
-		m.toggleSort(sortByMem)
-		return m, nil
-	case "7":
-		m.toggleSort(sortByMemPct)
-		return m, nil
-	case "8":
-		m.toggleSort(sortByCPU)
-		return m, nil
-	case "9":
-		m.toggleSort(sortByUptime)
+	case "0":
+		if m.pendingCount > 0 {
+			m.accumulateCount(0)
+		}
 		return m, nil
 
 	case "j", "down":
-		if m.selected < len(doms)-1 {
-			m.selected++
+		n := m.consumeCount()
+		m.lastDir = +1
+		m.selected += n
+		if m.selected >= len(doms) {
+			m.selected = len(doms) - 1
 		}
 		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case "k", "up":
-		if m.selected > 0 {
-			m.selected--
+		n := m.consumeCount()
+		m.lastDir = -1
+		m.selected -= n
+		if m.selected < 0 {
+			m.selected = 0
 		}
 		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
 
 	case "g", "home":
+		m.pendingCount = 0
+		m.lastDir = +1 // from the top, only down makes sense
 		m.selected = 0
 		return m, nil
 
 	case "G", "end":
+		// With a count, jump to row N (1-indexed), vim-style.
+		if n := m.consumeCount(); n > 1 {
+			m.selected = n - 1
+			if m.selected >= len(doms) {
+				m.selected = len(doms) - 1
+			}
+			if m.selected < 0 {
+				m.selected = 0
+			}
+			m.lastDir = +1
+			return m, nil
+		}
+		m.lastDir = -1 // from the bottom, only up makes sense
 		if len(doms) > 0 {
 			m.selected = len(doms) - 1
 		}
 		return m, nil
 
 	case "ctrl+d", "pgdown":
-		m.selected += 10
+		step := m.consumeCount()
+		if step == 1 {
+			step = 10
+		}
+		m.lastDir = +1
+		m.selected += step
 		if m.selected >= len(doms) {
 			m.selected = len(doms) - 1
 		}
 		return m, nil
 
 	case "ctrl+u", "pgup":
-		m.selected -= 10
+		step := m.consumeCount()
+		if step == 1 {
+			step = 10
+		}
+		m.lastDir = -1
+		m.selected -= step
 		if m.selected < 0 {
 			m.selected = 0
 		}
@@ -983,6 +1090,17 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "esc":
+		// Return to a quiet state, one layer at a time: a pending
+		// count first, marks next, then any active filter. Vim-like
+		// "back to normal" semantics.
+		if m.pendingCount > 0 {
+			m.pendingCount = 0
+			return m, nil
+		}
+		if m.markCount() > 0 {
+			m.clearMarks()
+			return m, nil
+		}
 		m.filter = ""
 		return m, nil
 
@@ -999,7 +1117,17 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	// ── Lifecycle actions ──
+	// When marks are set, these dispatch to every eligible marked
+	// domain; otherwise they act on the cursor row as before.
 	case "s":
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateShutoff, lv.StateCrashed)
+			if len(names) == 0 {
+				m.flashf("no marked VMs in a startable state")
+				return m, nil
+			}
+			return m, bulkActionCmd(m.client, "start", names, m.client.Start)
+		}
 		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
 			return m, actionCmd(m.client, "start", d.Name, m.client.Start)
 		}
@@ -1008,6 +1136,18 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "S":
 		// Graceful shutdown is destructive enough to warrant a confirmation —
 		// a busy guest losing power can corrupt state.
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateRunning)
+			if len(names) == 0 {
+				m.flashf("no marked VMs are running")
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmAction = "shutdown"
+			m.confirmBulk = true
+			m.confirmTargets = names
+			return m, nil
+		}
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "shutdown"
@@ -1016,6 +1156,18 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "D":
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateRunning)
+			if len(names) == 0 {
+				m.flashf("no marked VMs are running")
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmAction = "destroy"
+			m.confirmBulk = true
+			m.confirmTargets = names
+			return m, nil
+		}
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "destroy"
@@ -1025,6 +1177,18 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "R":
 		// Reboot is destructive — always confirmed.
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateRunning)
+			if len(names) == 0 {
+				m.flashf("no marked VMs are running")
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmAction = "reboot"
+			m.confirmBulk = true
+			m.confirmTargets = names
+			return m, nil
+		}
 		if d, ok := m.currentDomain(); ok && d.State == lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "reboot"
@@ -1033,6 +1197,21 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
+		// Bulk: pause every marked running VM. Resume is intentionally
+		// single-target for now — reviving a set requires no confirm
+		// and "p" as a true toggle on mixed states is confusing.
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateRunning)
+			if len(names) == 0 {
+				m.flashf("no marked VMs are running (resume is single-target via p)")
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmAction = "pause"
+			m.confirmBulk = true
+			m.confirmTargets = names
+			return m, nil
+		}
 		// Toggle: pause a running VM, resume a paused one.
 		if d, ok := m.currentDomain(); ok {
 			switch d.State {
@@ -1127,8 +1306,30 @@ func (m Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "U":
-		// Undefine a stopped VM. Destructive → always confirmed.
-		// (Was on lowercase x until we promoted x to open the XML view.)
+		// Undefine. Destructive → always confirmed. In bulk, above the
+		// ceiling the y/d/any-key prompt is replaced with a typed
+		// "undefine N" confirmation — a single slip cannot annihilate
+		// a large set.
+		if m.markCount() > 0 {
+			names := m.markedDomainsInStates(lv.StateShutoff, lv.StateCrashed)
+			if len(names) == 0 {
+				m.flashf("no marked VMs in a stopped state — cannot undefine")
+				return m, nil
+			}
+			if len(names) > bulkUndefineCeiling {
+				m.confirmTyping = true
+				m.confirmTypingAction = "undefine"
+				m.confirmTypingExpect = fmt.Sprintf("undefine %d", len(names))
+				m.confirmTypingInput = ""
+				m.confirmTargets = names
+				return m, nil
+			}
+			m.confirming = true
+			m.confirmAction = "undefine"
+			m.confirmBulk = true
+			m.confirmTargets = names
+			return m, nil
+		}
 		if d, ok := m.currentDomain(); ok && d.State != lv.StateRunning {
 			m.confirming = true
 			m.confirmAction = "undefine"
@@ -1283,10 +1484,27 @@ func (m Model) handleDetailSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Undefine has a two-choice prompt: y = keep disks, d = delete storage.
 	if m.confirmAction == "undefine" && msg.String() == "d" {
+		if m.confirmBulk {
+			names := m.confirmTargets
+			m.resetConfirm()
+			client := m.client
+			uri := client.URI()
+			return m, func() tea.Msg {
+				var failed []string
+				for _, n := range names {
+					warnings, err := client.UndefineAndDelete(n)
+					if err == nil && len(warnings) > 0 {
+						err = fmt.Errorf("%s", strings.Join(warnings, ", "))
+					}
+					if err != nil {
+						failed = append(failed, fmt.Sprintf("%s (%v)", n, err))
+					}
+				}
+				return bulkActionResultMsg{uri: uri, action: "undefine+delete", count: len(names), failed: failed}
+			}
+		}
 		name := m.confirmName
-		m.confirming = false
-		m.confirmName = ""
-		m.confirmAction = ""
+		m.resetConfirm()
 		client := m.client
 		uri := client.URI()
 		return m, func() tea.Msg {
@@ -1300,11 +1518,28 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "y", "Y":
+		// Bulk dispatch when a target set was stashed.
+		if m.confirmBulk {
+			names := m.confirmTargets
+			action := m.confirmAction
+			m.resetConfirm()
+			switch action {
+			case "destroy":
+				return m, bulkActionCmd(m.client, "destroy", names, m.client.Destroy)
+			case "undefine":
+				return m, bulkActionCmd(m.client, "undefine", names, m.client.Undefine)
+			case "reboot":
+				return m, bulkActionCmd(m.client, "reboot", names, m.client.Reboot)
+			case "shutdown":
+				return m, bulkActionCmd(m.client, "shutdown", names, m.client.Shutdown)
+			case "pause":
+				return m, bulkActionCmd(m.client, "pause", names, m.client.Suspend)
+			}
+			return m, nil
+		}
 		name := m.confirmName
 		action := m.confirmAction
-		m.confirming = false
-		m.confirmName = ""
-		m.confirmAction = ""
+		m.resetConfirm()
 		switch action {
 		case "destroy":
 			return m, actionCmd(m.client, "destroy", name, m.client.Destroy)
@@ -1333,11 +1568,85 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	default:
-		m.confirming = false
-		m.confirmName = ""
-		m.confirmAction = ""
+		m.resetConfirm()
 		m.flash = "cancelled"
 		m.flashUntil = time.Now().Add(2 * time.Second)
+		return m, nil
+	}
+}
+
+// resetConfirm clears all confirm-dialog state — single-target and
+// bulk alike. Called from every terminal branch of handleConfirmKey
+// so no stale confirmName or confirmTargets can bleed into the next
+// action.
+func (m *Model) resetConfirm() {
+	m.confirming = false
+	m.confirmAction = ""
+	m.confirmName = ""
+	m.confirmBulk = false
+	m.confirmTargets = nil
+}
+
+func (m *Model) resetTypedConfirm() {
+	m.confirmTyping = false
+	m.confirmTypingAction = ""
+	m.confirmTypingExpect = ""
+	m.confirmTypingInput = ""
+	m.confirmTargets = nil
+}
+
+// handleTypedConfirmKey runs the typed-phrase confirmation for bulk
+// operations above the safety ceiling. The master must type the
+// expected phrase (e.g. "undefine 47") and press Enter to proceed,
+// or append " delete" before Enter to also remove storage. Esc or
+// any non-matching phrase cancels.
+func (m Model) handleTypedConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := msg.String()
+	switch s {
+	case "esc", "ctrl+c":
+		m.resetTypedConfirm()
+		m.flashf("cancelled")
+		return m, nil
+	case "backspace":
+		m.confirmTypingInput = runeBackspace(m.confirmTypingInput)
+		return m, nil
+	case "enter":
+		typed := m.confirmTypingInput
+		expect := m.confirmTypingExpect
+		withDelete := typed == expect+" delete"
+		if typed != expect && !withDelete {
+			m.resetTypedConfirm()
+			m.flashf("phrase mismatch — cancelled")
+			return m, nil
+		}
+		names := m.confirmTargets
+		action := m.confirmTypingAction
+		m.resetTypedConfirm()
+		if action == "undefine" {
+			client := m.client
+			uri := client.URI()
+			if withDelete {
+				return m, func() tea.Msg {
+					var failed []string
+					for _, n := range names {
+						warnings, err := client.UndefineAndDelete(n)
+						if err == nil && len(warnings) > 0 {
+							err = fmt.Errorf("%s", strings.Join(warnings, ", "))
+						}
+						if err != nil {
+							failed = append(failed, fmt.Sprintf("%s (%v)", n, err))
+						}
+					}
+					return bulkActionResultMsg{uri: uri, action: "undefine+delete", count: len(names), failed: failed}
+				}
+			}
+			return m, bulkActionCmd(m.client, "undefine", names, m.client.Undefine)
+		}
+		return m, nil
+	default:
+		if len(s) == 1 {
+			m.confirmTypingInput += s
+		}
 		return m, nil
 	}
 }
@@ -1468,16 +1777,6 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 	return a.Name < b.Name
 }
 
-// toggleSort switches to the given column, or flips direction if already on it.
-func (m *Model) toggleSort(col sortColumn) {
-	if m.sortColumn == col {
-		m.sortDesc = !m.sortDesc
-	} else {
-		m.sortColumn = col
-		m.sortDesc = false
-	}
-}
-
 // currentDomain returns the currently selected domain, if any.
 func (m Model) currentDomain() (lv.Domain, bool) {
 	doms := m.visibleDomains()
@@ -1504,6 +1803,287 @@ func (m *Model) boundSelection() {
 func (m *Model) flashf(format string, args ...any) {
 	m.flash = fmt.Sprintf(format, args...)
 	m.flashUntil = time.Now().Add(3 * time.Second)
+}
+
+// ──────────────────────────── Marks ──────────────────────────────────────────
+
+func (m Model) isMarked(uuid string) bool {
+	return m.marks[uuid]
+}
+
+func (m Model) markCount() int { return len(m.marks) }
+
+func (m *Model) toggleMark(uuid string) {
+	if uuid == "" {
+		return
+	}
+	if m.marks == nil {
+		m.marks = make(map[string]bool)
+	}
+	if m.marks[uuid] {
+		delete(m.marks, uuid)
+	} else {
+		m.marks[uuid] = true
+	}
+}
+
+func (m *Model) clearMarks() {
+	m.marks = make(map[string]bool)
+}
+
+// markAllVisible marks every domain currently shown by the active
+// filter. Hidden-by-filter domains are left untouched.
+func (m *Model) markAllVisible() {
+	if m.marks == nil {
+		m.marks = make(map[string]bool)
+	}
+	for _, d := range m.visibleDomains() {
+		m.marks[d.UUID] = true
+	}
+}
+
+// invertMarksVisible flips the mark on every currently visible domain.
+// Marks on hidden-by-filter domains are preserved as-is.
+func (m *Model) invertMarksVisible() {
+	if m.marks == nil {
+		m.marks = make(map[string]bool)
+	}
+	for _, d := range m.visibleDomains() {
+		if m.marks[d.UUID] {
+			delete(m.marks, d.UUID)
+		} else {
+			m.marks[d.UUID] = true
+		}
+	}
+}
+
+// pruneMarks drops marks whose UUID is no longer present in the
+// current snapshot — domains that were undefined elsewhere, or
+// vanished on a host switch.
+func (m *Model) pruneMarks() {
+	if len(m.marks) == 0 || m.snap == nil {
+		return
+	}
+	alive := make(map[string]bool, len(m.snap.Domains))
+	for _, d := range m.snap.Domains {
+		alive[d.UUID] = true
+	}
+	for uuid := range m.marks {
+		if !alive[uuid] {
+			delete(m.marks, uuid)
+		}
+	}
+}
+
+// marksHiddenByFilter counts marks whose domain is not visible under
+// the current filter. Used in the confirmation text for bulk actions
+// so the master is never blindsided by hidden victims.
+func (m Model) marksHiddenByFilter() int {
+	if len(m.marks) == 0 {
+		return 0
+	}
+	visible := make(map[string]bool, len(m.marks))
+	for _, d := range m.visibleDomains() {
+		if m.marks[d.UUID] {
+			visible[d.UUID] = true
+		}
+	}
+	return len(m.marks) - len(visible)
+}
+
+// markedDomainsInStates returns the names of marked domains whose
+// state is one of the given states. Pulled straight from the current
+// snapshot so a stale mark set cannot resurrect a vanished VM.
+func (m Model) markedDomainsInStates(states ...lv.State) []string {
+	if len(m.marks) == 0 || m.snap == nil {
+		return nil
+	}
+	wanted := make(map[lv.State]bool, len(states))
+	for _, s := range states {
+		wanted[s] = true
+	}
+	out := make([]string, 0, len(m.marks))
+	for _, d := range m.snap.Domains {
+		if !m.marks[d.UUID] {
+			continue
+		}
+		if len(wanted) > 0 && !wanted[d.State] {
+			continue
+		}
+		out = append(out, d.Name)
+	}
+	return out
+}
+
+// accumulateCount appends a digit to the pending numeric prefix.
+// Clamped at 9999 so a wedged keyboard cannot overflow selection.
+func (m *Model) accumulateCount(d uint8) {
+	next := m.pendingCount*10 + int(d)
+	if next > 9999 {
+		next = 9999
+	}
+	m.pendingCount = next
+}
+
+// consumeCount returns the pending count (≥1) and clears it. Use
+// from every motion / operator handler that should respect a count.
+func (m *Model) consumeCount() int {
+	n := m.pendingCount
+	m.pendingCount = 0
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+// dirOrDown returns lastDir if set, otherwise +1 (down). SPACE uses
+// this so the advance direction mirrors the master's last cursor
+// motion.
+func (m Model) dirOrDown() int {
+	if m.lastDir == -1 {
+		return -1
+	}
+	return +1
+}
+
+// doSpace handles SPACE in the main list: toggle the mark on the
+// cursor row and advance `n` times (from the pending count, default
+// 1) in the last motion direction. Leaves lastDir untouched so a run
+// of SPACEs keeps travelling.
+func (m Model) doSpace(doms []lv.Domain) (tea.Model, tea.Cmd) {
+	n := m.consumeCount()
+	dir := m.dirOrDown()
+	for i := 0; i < n; i++ {
+		if d, ok := m.currentDomain(); ok {
+			m.toggleMark(d.UUID)
+		}
+		if dir == +1 {
+			if m.selected < len(doms)-1 {
+				m.selected++
+			}
+		} else {
+			if m.selected > 0 {
+				m.selected--
+			}
+		}
+	}
+	return m, nil
+}
+
+// bulkFailSummary renders up to three failure entries from a bulk
+// action for the status-bar flash, with an ellipsis when more remain.
+func bulkFailSummary(failed []string) string {
+	const max = 3
+	if len(failed) <= max {
+		return strings.Join(failed, "; ")
+	}
+	return strings.Join(failed[:max], "; ") + fmt.Sprintf("; +%d more", len(failed)-max)
+}
+
+// execMarkCommand routes :mark and its subcommands.
+func (m Model) execMarkCommand(cmd string) Model {
+	switch cmd {
+	case "mark all":
+		m.markAllVisible()
+		m.flashf("marked %d visible", m.markCount())
+	case "mark invert":
+		m.invertMarksVisible()
+		m.flashf("inverted — %d marked", m.markCount())
+	case "mark none", "unmark":
+		n := m.markCount()
+		m.clearMarks()
+		if n > 0 {
+			m.flashf("cleared %d mark(s)", n)
+		}
+	case "mark":
+		if m.markCount() == 0 {
+			m.flashf("no marks — :mark [all|invert|none]")
+		} else {
+			m.flashf("%d marked", m.markCount())
+		}
+	}
+	return m
+}
+
+// execSortCommand routes :sort [col] [desc]. Empty col flashes the
+// current sort state; "desc" reverses direction.
+func (m Model) execSortCommand(args string) Model {
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		m.flashf("current sort: %s — :sort <col> [desc]", sortColumnID(m.sortColumn))
+		return m
+	}
+	col := fields[0]
+	sc := sortColumnFromID(col)
+	// sortColumnFromID falls through to sortByState on unknown ids;
+	// guard against that so a typo doesn't silently resort.
+	if !isSortableID(col) {
+		m.flashf("unknown sort column: %s", col)
+		return m
+	}
+	desc := false
+	if len(fields) > 1 {
+		switch fields[1] {
+		case "desc", "reverse", "rev":
+			desc = true
+		case "asc":
+			desc = false
+		default:
+			m.flashf("unknown direction: %s (use desc or asc)", fields[1])
+			return m
+		}
+	}
+	m.sortColumn = sc
+	m.sortDesc = desc
+	return m
+}
+
+// isSortableID reports whether id names a sortable column in vmColumns.
+func isSortableID(id string) bool {
+	for _, c := range vmColumns {
+		if c.id == id && c.sort != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// sortColumnID is the reverse of sortColumnFromID — recovers the
+// canonical id for a sortColumn enum value.
+func sortColumnID(sc sortColumn) string {
+	for _, c := range vmColumns {
+		if c.sort == sc {
+			return c.id
+		}
+	}
+	return "?"
+}
+
+// execThemeCommand hot-swaps the colour palette. Empty or unknown
+// names flash the list of available themes.
+func (m Model) execThemeCommand(name string) Model {
+	if name == "" {
+		m.flashf(":theme %s", strings.Join(themeNames(), ", "))
+		return m
+	}
+	if _, ok := themes[name]; !ok {
+		m.flashf("unknown theme: %s — %s", name, strings.Join(themeNames(), ", "))
+		return m
+	}
+	ApplyTheme(name)
+	m.flashf("theme: %s", name)
+	return m
+}
+
+// themeNames returns the registered theme names in a deterministic
+// order so the flash text is stable between runs.
+func themeNames() []string {
+	names := make([]string, 0, len(themes))
+	for n := range themes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // checkAnomalies scans every running VM's history for sustained high
@@ -1575,10 +2155,7 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = ""
 		return m, nil
 	case "tab":
-		// Auto-complete to the unique prefix match.
-		if match, ok := uniquePrefixMatch(m.command); ok {
-			m.command = match
-		}
+		m.command = completePaletteInput(m.command)
 		return m, nil
 	case "enter":
 		cmd := strings.TrimSpace(m.command)
@@ -1615,6 +2192,87 @@ func uniquePrefixMatch(prefix string) (string, bool) {
 		return match, true
 	}
 	return "", false
+}
+
+// completePaletteInput is the TAB handler for the `:` prompt. It
+// extends the typed text to the longest unambiguous prefix — either
+// the command name at the top level, or a sub-arg once the master has
+// added a space. Unknown input is returned unchanged.
+func completePaletteInput(input string) string {
+	if idx := strings.Index(input, " "); idx >= 0 {
+		base := input[:idx]
+		// Preserve whatever spacing the master typed between the
+		// command and the sub-arg prefix.
+		rest := input[idx:]
+		lead := rest[:len(rest)-len(strings.TrimLeft(rest, " "))]
+		sub := strings.TrimLeft(rest, " ")
+		for _, c := range paletteCommands {
+			if c.name == base && len(c.args) > 0 {
+				names := make([]string, len(c.args))
+				for i, a := range c.args {
+					names[i] = a.name
+				}
+				if extended, ok := extendPrefix(sub, names); ok {
+					return base + lead + extended
+				}
+				return input
+			}
+		}
+		return input
+	}
+	names := make([]string, len(paletteCommands))
+	for i, c := range paletteCommands {
+		names[i] = c.name
+	}
+	if extended, ok := extendPrefix(input, names); ok {
+		return extended
+	}
+	return input
+}
+
+// extendPrefix returns the longest common prefix of every candidate
+// starting with `prefix`. Returns ok=false when nothing matches;
+// returns the single candidate verbatim when exactly one matches.
+func extendPrefix(prefix string, candidates []string) (string, bool) {
+	matches := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		if strings.HasPrefix(c, prefix) {
+			matches = append(matches, c)
+		}
+	}
+	if len(matches) == 0 {
+		return "", false
+	}
+	if len(matches) == 1 {
+		return matches[0], true
+	}
+	common := matches[0]
+	for _, m := range matches[1:] {
+		common = commonPrefix(common, m)
+		if common == prefix {
+			return prefix, true // no forward progress possible
+		}
+	}
+	if len(common) > len(prefix) {
+		return common, true
+	}
+	return prefix, true
+}
+
+// commonPrefix returns the longest string that is a prefix of both a
+// and b, working on runes so multi-byte characters stay intact.
+func commonPrefix(a, b string) string {
+	ar := []rune(a)
+	br := []rune(b)
+	n := len(ar)
+	if len(br) < n {
+		n = len(br)
+	}
+	i := 0
+	for i < n && ar[i] == br[i] {
+		i++
+	}
+	return string(ar[:i])
 }
 
 // handleCloneKey runs the inline rename prompt triggered by C on a
@@ -1806,6 +2464,16 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 	case "jobs":
 		m.mode = viewJobs
 		return m, nil
+	case "mark", "mark all", "mark invert", "mark none", "unmark":
+		return m.execMarkCommand(cmd), nil
+	}
+	// Sort commands take the column id (and optional direction) as args.
+	if strings.HasPrefix(cmd, "sort") {
+		return m.execSortCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "sort"))), nil
+	}
+	// Theme hot-swap: :theme <name>. Empty name flashes the list.
+	if strings.HasPrefix(cmd, "theme") {
+		return m.execThemeCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "theme"))), nil
 	}
 	// No exact match — try unique prefix before giving up.
 	if match, ok := uniquePrefixMatch(cmd); ok {
