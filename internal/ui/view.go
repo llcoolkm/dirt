@@ -299,6 +299,10 @@ var paletteCommands = []paletteCommand{
 	{"perf", "graphs", nil},
 	{"jobs", "background jobs", nil},
 	{"columns", "show / hide table columns", nil},
+	{"export", "export VM list to file", []paletteArg{
+		{name: "csv"},
+		{name: "json"},
+	}},
 	{"resume", "resume paused VM(s)", nil},
 	{"mark", "mark [all|invert|none]", markArgs},
 	{"sort", "sort [col] [desc]", sortArgs},

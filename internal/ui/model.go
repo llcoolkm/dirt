@@ -2191,6 +2191,31 @@ func (m Model) execThemeCommand(name string) Model {
 	return m
 }
 
+// execExportCommand routes :export csv|json [path].
+func (m Model) execExportCommand(args string) Model {
+	fields := strings.Fields(args)
+	if len(fields) == 0 {
+		m.flashf(":export csv|json [path]")
+		return m
+	}
+	format := fields[0]
+	if format != "csv" && format != "json" {
+		m.flashf("unknown format: %s — use csv or json", format)
+		return m
+	}
+	dest := ""
+	if len(fields) > 1 {
+		dest = strings.Join(fields[1:], " ")
+	}
+	path, err := m.exportTable(format, dest)
+	if err != nil {
+		m.flashf("✗ export: %v", err)
+		return m
+	}
+	m.flashf("✓ exported %d row(s) → %s", len(m.visibleDomains()), path)
+	return m
+}
+
 // themeNames returns the registered theme names in a deterministic
 // order so the flash text is stable between runs.
 func themeNames() []string {
@@ -2650,6 +2675,10 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 	// Theme hot-swap: :theme <name>. Empty name flashes the list.
 	if strings.HasPrefix(cmd, "theme") {
 		return m.execThemeCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "theme"))), nil
+	}
+	// Export the current VM-list view: :export csv|json [path]
+	if strings.HasPrefix(cmd, "export") {
+		return m.execExportCommand(strings.TrimSpace(strings.TrimPrefix(cmd, "export"))), nil
 	}
 	// No exact match — try unique prefix before giving up.
 	if match, ok := uniquePrefixMatch(cmd); ok {
