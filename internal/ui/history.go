@@ -61,6 +61,35 @@ type domHistory struct {
 	// First time this domain was observed in the running state. Used as a
 	// dirt-side estimate of uptime — accurate from the moment dirt started.
 	firstRunningSince time.Time
+
+	// Per-NIC and per-disk previous samples for live-rate display in
+	// the info pane. Keyed by libvirt's stat name (tap device for
+	// NICs, source path for disks).
+	lastNICStats  map[string]nicSample
+	nicRates      map[string]nicRate
+	lastDiskStats map[string]diskSample
+	diskRates     map[string]diskRate
+}
+
+type nicSample struct {
+	at         time.Time
+	rxB, txB   uint64
+	rxPk, txPk uint64
+}
+type nicRate struct {
+	rxBps, txBps float64
+	rxPps, txPps float64
+	available    bool
+}
+type diskSample struct {
+	at         time.Time
+	rdB, wrB   uint64
+	rdOps, wrOps uint64
+}
+type diskRate struct {
+	rdBps, wrBps float64
+	rdIops, wrIops float64
+	available      bool
 }
 
 // update appends one new sample, computing rates from the previous reading.
@@ -182,6 +211,70 @@ func (h *domHistory) update(d lv.Domain) {
 	h.lastMajorFault = d.BalloonMajorFault
 	h.lastT = d.SampledAt
 	h.hasPrev = true
+
+	h.updateNICRates(d)
+	h.updateDiskRates(d)
+}
+
+// updateNICRates computes per-NIC byte/pps rates from the cumulative
+// counters in d.NICStats and the previously-stashed sample.
+func (h *domHistory) updateNICRates(d lv.Domain) {
+	if h.lastNICStats == nil {
+		h.lastNICStats = make(map[string]nicSample)
+	}
+	if h.nicRates == nil {
+		h.nicRates = make(map[string]nicRate)
+	}
+	now := d.SampledAt
+	for name, s := range d.NICStats {
+		prev, has := h.lastNICStats[name]
+		if has && !prev.at.IsZero() {
+			dt := now.Sub(prev.at).Seconds()
+			if dt >= 0.1 && s.RxBytes >= prev.rxB && s.TxBytes >= prev.txB {
+				h.nicRates[name] = nicRate{
+					rxBps:     float64(s.RxBytes-prev.rxB) / dt,
+					txBps:     float64(s.TxBytes-prev.txB) / dt,
+					rxPps:     float64(s.RxPkts-prev.rxPk) / dt,
+					txPps:     float64(s.TxPkts-prev.txPk) / dt,
+					available: true,
+				}
+			}
+		}
+		h.lastNICStats[name] = nicSample{
+			at: now, rxB: s.RxBytes, txB: s.TxBytes, rxPk: s.RxPkts, txPk: s.TxPkts,
+		}
+	}
+}
+
+// updateDiskRates computes per-disk byte/iops rates from the
+// cumulative counters in d.DiskStats and the previously-stashed
+// sample.
+func (h *domHistory) updateDiskRates(d lv.Domain) {
+	if h.lastDiskStats == nil {
+		h.lastDiskStats = make(map[string]diskSample)
+	}
+	if h.diskRates == nil {
+		h.diskRates = make(map[string]diskRate)
+	}
+	now := d.SampledAt
+	for name, s := range d.DiskStats {
+		prev, has := h.lastDiskStats[name]
+		if has && !prev.at.IsZero() {
+			dt := now.Sub(prev.at).Seconds()
+			if dt >= 0.1 && s.RdBytes >= prev.rdB && s.WrBytes >= prev.wrB {
+				h.diskRates[name] = diskRate{
+					rdBps:     float64(s.RdBytes-prev.rdB) / dt,
+					wrBps:     float64(s.WrBytes-prev.wrB) / dt,
+					rdIops:    float64(s.RdReqs-prev.rdOps) / dt,
+					wrIops:    float64(s.WrReqs-prev.wrOps) / dt,
+					available: true,
+				}
+			}
+		}
+		h.lastDiskStats[name] = diskSample{
+			at: now, rdB: s.RdBytes, wrB: s.WrBytes, rdOps: s.RdReqs, wrOps: s.WrReqs,
+		}
+	}
 }
 
 // uptime returns the dirt-side uptime estimate (since we first saw the VM

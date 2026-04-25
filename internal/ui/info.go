@@ -276,6 +276,15 @@ func (m Model) renderInfoBody(info lv.DomainInfo) []string {
 			}
 		}
 		lines = append(lines, line)
+		// Live per-NIC rate, if rates are populated yet (needs ≥2 samples).
+		if h := m.history[live.UUID]; h != nil && nic.Target != "" {
+			if r, ok := h.nicRates[nic.Target]; ok && r.available {
+				lines = append(lines, "  "+label("")+
+					headerValue.Render(fmt.Sprintf("↓ %s / ↑ %s  ·  ↓ %.0f pps / ↑ %.0f pps",
+						formatRate(r.rxBps), formatRate(r.txBps),
+						r.rxPps, r.txPps)))
+			}
+		}
 	}
 	lines = append(lines, "")
 
