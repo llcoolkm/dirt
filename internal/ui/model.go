@@ -42,6 +42,7 @@ const (
 	viewHosts                     // list of known libvirt endpoints
 	viewJobs                      // active + recent background jobs
 	viewMigrate                   // destination picker for live migration
+	viewColumns                   // picker for which VM-list columns are shown
 )
 
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
@@ -204,6 +205,9 @@ type Model struct {
 	// Column sort. sortColumn indexes into the list's sortable columns.
 	sortColumn sortColumn
 	sortDesc   bool
+
+	// columnsSel is the cursor in the columns picker view.
+	columnsSel int
 
 	// activeColumns is the VM-list column slice honouring the user's
 	// config.yaml column-visibility preferences. Always a subset of
@@ -971,6 +975,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleMigrateKey(msg)
 	case viewHosts:
 		return m.handleHostsKey(msg)
+	case viewColumns:
+		return m.handleColumnsKey(msg)
 	}
 	switch {
 	case m.confirmTyping:
@@ -2613,6 +2619,10 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		return m, nil
 	case "jobs":
 		m.mode = viewJobs
+		return m, nil
+	case "columns":
+		m.mode = viewColumns
+		m.columnsSel = 0
 		return m, nil
 	case "mark", "mark all", "mark invert", "mark none", "unmark":
 		return m.execMarkCommand(cmd), nil

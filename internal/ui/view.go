@@ -46,6 +46,8 @@ func (m Model) View() string {
 		return m.migrateView()
 	case viewHosts:
 		return m.hostsView()
+	case viewColumns:
+		return m.columnsView()
 	}
 
 	parts := []string{
@@ -296,6 +298,7 @@ var paletteCommands = []paletteCommand{
 	{"host", "hosts", nil},
 	{"perf", "graphs", nil},
 	{"jobs", "background jobs", nil},
+	{"columns", "show / hide table columns", nil},
 	{"resume", "resume paused VM(s)", nil},
 	{"mark", "mark [all|invert|none]", markArgs},
 	{"sort", "sort [col] [desc]", sortArgs},
