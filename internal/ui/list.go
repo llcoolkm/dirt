@@ -21,8 +21,9 @@ const (
 	colUptimeW  = 8
 	colIOReadW  = 5
 	colIOWriteW = 5
-	// Bar columns: [█████] 100% = 1+5+1+1+4 = 12 cells.
-	colBarW = 12
+	// Bar columns: [█████] = 1+5+1 = 7 cells. The bar's fill is the
+	// percentage — a numeric label would be redundant.
+	colBarW = 7
 )
 
 // column describes a VM list column. The id is a stable lowercase
@@ -95,7 +96,7 @@ var vmColumns = []column{
 			if !ok {
 				return ""
 			}
-			return "[" + colorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
+			return "[" + colorBar(pct, 5) + "]"
 		}},
 	{id: "cpu", label: "CPU%", sort: sortByCPU, width: colCPUW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
@@ -109,8 +110,7 @@ var vmColumns = []column{
 			if d.State != lv.StateRunning || h == nil {
 				return ""
 			}
-			pct := h.currentCPU()
-			return "[" + colorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
+			return "[" + colorBar(h.currentCPU(), 5) + "]"
 		}},
 	{id: "uptime", label: "UPTIME", sort: sortByUptime, width: colUptimeW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
@@ -142,7 +142,7 @@ var vmColumns = []column{
 				return ""
 			}
 			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
-			return "[" + storageColorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
+			return "[" + storageColorBar(pct, 5) + "]"
 		}},
 }
 
