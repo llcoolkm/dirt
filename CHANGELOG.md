@@ -2,6 +2,24 @@
 
 All notable changes to dirt are documented here.
 
+## v0.9.1 — 2026-04-28
+
+**Polish release: bug fixes plus a few small features that grew out of v0.9.0 testing.**
+
+### Bug fixes
+- **Selected-row highlight extends across the whole row** even when cells carry coloured ANSI (bar columns, state cells, status cells). Previously the row highlight terminated at the first inner `\x1b[m` reset, leaving the rest of the row unstyled.
+- **`:pool` USAGE column no longer drifts on selection.** The selected branch of `renderPoolRow` padded the cell to `poolUsageW`; the non-selected branch produced `poolUsageW-2` cells. The 2-cell delta caused the column to jump rightward when the row was selected.
+
+### Small features
+- **`mark_advance: none`** — third option alongside `directional` and `down`. SPACE becomes a pure toggle: the mark flips, the cursor stays put. Useful for users who navigate with j/k and want SPACE to do exactly toggle.
+- **`:columns reset`** — restore default column visibility without touching `config.yaml`. Run `:save` afterwards to persist.
+- **Header-click sort across `:net`, `:pool`, `:host`.** Each subview gains a sort state, ▲/▼ arrows on the active column header, and click handlers that route header-row clicks to the per-view sort updater. Same column toggles direction; non-matching click switches column and resets to ascending.
+- **`net_rate` split into `net_rx` + `net_tx`.** Mirrors `io_r`/`io_w`. Each column 8 cells, both individually toggleable via `:columns`. Replaces the combined 16-cell column.
+
+### Documentation
+- README features list, keybindings tables, and themes catalogue aligned with v0.9.0+ reality.
+- Help screen (`?`) updated: numeric-counts section replaces the old `1`–`9` sort table; new sections for marks/bulk operations and grouping/folding.
+
 ## v0.9.0 — 2026-04-27
 
 **Bulk operations expanded, persistent preferences, more columns, more themes, header-click sort.**
@@ -19,7 +37,7 @@ All notable changes to dirt are documented here.
 ### Columns
 - `:columns` opens a runtime picker mode listing every column in `vmColumns`. SPACE / Enter toggles, `a` shows all, `n` hides every non-required, Esc returns. Required columns refuse to hide.
 - New columns: `cpu_bar`, `mem_bar`, `disk_bar` — coloured mini-bars (`[█████]`) honouring the active theme. `disk_bar` uses storage thresholds (80 / 95 %).
-- New columns: `net_rate` (combined `↓rx ↑tx`), `autostart`, `persistent`, `arch`, `tag`. All default off.
+- New columns: `net_rate` (combined `↓rx ↑tx` — split into `net_rx` / `net_tx` in v0.9.1), `autostart`, `persistent`, `arch`, `tag`. All default off.
 
 ### Grouping
 - `:group arch` and `:group tag` join `:group os` and `:group state`. Domains without a tag fall under `(untagged)`.
@@ -41,14 +59,10 @@ All notable changes to dirt are documented here.
 ### Configuration
 - `:config` opens `config.yaml` in `$EDITOR` and reloads on exit.
 - `:save` (alias `:w`, `:write`) persists current runtime preferences (theme, sort, columns, mark-advance) back to `config.yaml`. `:wq` (or `:x`) saves and quits.
-- New `list.mark_advance` config field — `directional` (default, follows last cursor motion), `down` (always advance downward), or `none` (pure toggle, no movement).
-- `:columns reset` restores default column visibility without touching the config file.
+- New `list.mark_advance` config field — `directional` (default, follows last cursor motion) or `down` (always advance downward). A third `none` option arrived in v0.9.1.
 
 ### Mouse
-- Click a column header to sort by it. Click the active sort column to toggle direction. Works on the main VM list, `:net`, `:pool`, and `:host`. Non-sortable columns are ignored.
-
-### Bug fixes
-- Selected-row highlight now spans the whole row even when cells contain coloured ANSI (bar columns, state cells). Previously the highlight stopped at the first inner `\x1b[m` reset.
+- Click a column header to sort by it. Click the active sort column to toggle direction. Non-sortable columns are ignored. (Extended to subviews in v0.9.1.)
 
 ### Tests
 - Test suite expanded — `internal/ui` coverage 4.7 % → 30.1 %; new tests cover marks, bulk dispatch, numeric counts, palette completion, group key derivation, bridge rate math, sort/filter, themes, viewport indicator, mark glyph rendering, attach/detach state machine, columns picker, confirm/typed-confirm dialog, and Update routing.
