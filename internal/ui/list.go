@@ -21,6 +21,8 @@ const (
 	colUptimeW  = 8
 	colIOReadW  = 5
 	colIOWriteW = 5
+	// Bar columns: [█████] 100% = 1+5+1+1+4 = 12 cells.
+	colBarW = 12
 )
 
 // column describes a VM list column. The id is a stable lowercase
@@ -84,12 +86,31 @@ var vmColumns = []column{
 			}
 			return "—"
 		}},
+	{id: "mem_bar", label: "MEM", width: colBarW, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning {
+				return ""
+			}
+			pct, ok := domainMemUsedPct(d)
+			if !ok {
+				return ""
+			}
+			return "[" + colorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
+		}},
 	{id: "cpu", label: "CPU%", sort: sortByCPU, width: colCPUW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%5.1f%%", h.currentCPU())
+		}},
+	{id: "cpu_bar", label: "CPU", width: colBarW, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return ""
+			}
+			pct := h.currentCPU()
+			return "[" + colorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
 		}},
 	{id: "uptime", label: "UPTIME", sort: sortByUptime, width: colUptimeW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
@@ -114,6 +135,14 @@ var vmColumns = []column{
 				return "—"
 			}
 			return fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
+		}},
+	{id: "disk_bar", label: "DISK", width: colBarW, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.TotalDiskCapacityBytes == 0 {
+				return ""
+			}
+			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
+			return "[" + storageColorBar(pct, 5) + "] " + fmt.Sprintf("%3.0f%%", pct)
 		}},
 }
 
