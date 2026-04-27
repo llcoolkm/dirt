@@ -22,10 +22,11 @@ type Client struct {
 	conn *libvirt.Connect
 	uri  string
 
-	// osCache maps UUID -> short OS name. Populated lazily on first sight of a
-	// domain since the OS doesn't change at runtime.
-	osMu    sync.Mutex
-	osCache map[string]string
+	// metaCache maps UUID -> derived metadata pulled from the domain
+	// XML (OS label, architecture, dirt tags). All three are stable
+	// at runtime, so we cache the parse on first sight.
+	osMu      sync.Mutex
+	metaCache map[string]DomainMeta
 
 	// statsPeriodSet records which domains have already had their balloon
 	// stats push period configured. We do it once per dirt session.
@@ -45,7 +46,7 @@ func New(uri string) (*Client, error) {
 	return &Client{
 		conn:           conn,
 		uri:            uri,
-		osCache:        make(map[string]string),
+		metaCache:      make(map[string]DomainMeta),
 		statsPeriodSet: make(map[string]bool),
 	}, nil
 }
@@ -115,8 +116,10 @@ type Domain struct {
 	UUID       string
 	ID         uint
 	State      State
-	OS         string // friendly OS label parsed from libosinfo metadata, e.g. "Ubuntu 24.04"
-	IP         string // primary IPv4 (DHCP lease, ARP fallback, QGA if available)
+	OS         string   // friendly OS label parsed from libosinfo metadata, e.g. "Ubuntu 24.04"
+	Arch       string   // CPU architecture from <os><type arch="...">, e.g. "x86_64"
+	Tags       []string // dirt tags from <metadata> (see DirtTagsNS)
+	IP         string   // primary IPv4 (DHCP lease, ARP fallback, QGA if available)
 	NrVCPU      uint
 	MaxMemKB    uint64
 	MemoryKB    uint64
@@ -357,8 +360,12 @@ func (c *Client) Snapshot() (*Snapshot, error) {
 			}
 		}
 
-		// OS label — cached on first sight, since it doesn't change at runtime.
-		dom.OS = c.osFor(d, dom.UUID)
+		// OS label / arch / tags — cached on first sight, all stable
+		// at runtime. Tags use the dirt-private metadata namespace.
+		meta := c.metaFor(d, dom.UUID)
+		dom.OS = meta.OS
+		dom.Arch = meta.Arch
+		dom.Tags = meta.Tags
 
 		// Make sure the guest balloon driver pushes memory stats on a regular
 		// cadence. By default the QEMU balloon stat period is 0 ("on demand")
@@ -1366,11 +1373,24 @@ func (c *Client) ensureStatsPeriod(d *libvirt.Domain, uuid string) {
 	_ = d.SetMemoryStatsPeriod(2, libvirt.DOMAIN_MEM_LIVE)
 }
 
-// osFor returns a friendly OS label for a domain, caching the result.
-// Looks for libosinfo metadata in the live XML.
-func (c *Client) osFor(d *libvirt.Domain, uuid string) string {
+// DirtTagsNS is the metadata namespace dirt uses to read per-domain
+// tags from the libvirt XML. Tags live in <metadata><dirt:tags>...
+// </dirt:tags></metadata> as comma-separated values.
+const DirtTagsNS = "https://github.com/llcoolkm/dirt/tags/0.1"
+
+// DomainMeta is the per-domain metadata derived from the live XML —
+// none of these change at runtime, so we cache the parse.
+type DomainMeta struct {
+	OS   string
+	Arch string
+	Tags []string
+}
+
+// metaFor returns the cached metadata block for a domain, parsing
+// the XML on first sight.
+func (c *Client) metaFor(d *libvirt.Domain, uuid string) DomainMeta {
 	c.osMu.Lock()
-	if v, ok := c.osCache[uuid]; ok {
+	if v, ok := c.metaCache[uuid]; ok {
 		c.osMu.Unlock()
 		return v
 	}
@@ -1378,14 +1398,54 @@ func (c *Client) osFor(d *libvirt.Domain, uuid string) string {
 
 	x, err := d.GetXMLDesc(0)
 	if err != nil {
-		return ""
+		return DomainMeta{}
 	}
-	label := parseOSFromXML(x)
+	m := parseDomainMeta(x)
 
 	c.osMu.Lock()
-	c.osCache[uuid] = label
+	c.metaCache[uuid] = m
 	c.osMu.Unlock()
-	return label
+	return m
+}
+
+// parseDomainMeta extracts OS label, architecture, and dirt tags
+// from a domain's live XML.
+func parseDomainMeta(x string) DomainMeta {
+	type osType struct {
+		Arch string `xml:"arch,attr"`
+	}
+	type osTag struct {
+		Type osType `xml:"type"`
+	}
+	type dirtTags struct {
+		Body string `xml:",chardata"`
+	}
+	type metaTag struct {
+		DirtTags dirtTags `xml:"tags"`
+	}
+	type domainTag struct {
+		OS   osTag   `xml:"os"`
+		Meta metaTag `xml:"metadata"`
+	}
+	var dt domainTag
+	_ = xml.Unmarshal([]byte(x), &dt)
+
+	out := DomainMeta{
+		OS:   parseOSFromXML(x),
+		Arch: dt.OS.Type.Arch,
+	}
+	raw := strings.TrimSpace(dt.Meta.DirtTags.Body)
+	if raw != "" {
+		parts := strings.Split(raw, ",")
+		out.Tags = make([]string, 0, len(parts))
+		for _, p := range parts {
+			t := strings.TrimSpace(p)
+			if t != "" {
+				out.Tags = append(out.Tags, t)
+			}
+		}
+	}
+	return out
 }
 
 // parseOSFromXML extracts a short OS label from a domain's libosinfo metadata.

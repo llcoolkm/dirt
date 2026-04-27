@@ -275,6 +275,7 @@ const (
 	sortByMemPct                      // 7
 	sortByCPU                         // 8
 	sortByUptime                      // 9
+	sortByTag                         // 10
 )
 
 func (s sortColumn) String() string {
@@ -297,6 +298,8 @@ func (s sortColumn) String() string {
 		return "CPU%"
 	case sortByUptime:
 		return "uptime"
+	case sortByTag:
+		return "tag"
 	}
 	return "?"
 }
@@ -1838,6 +1841,18 @@ func groupKeyFor(d lv.Domain, field string) string {
 		return d.OS
 	case "state":
 		return d.State.String()
+	case "arch":
+		if d.Arch == "" {
+			return "(unknown)"
+		}
+		return d.Arch
+	case "tag":
+		if len(d.Tags) == 0 {
+			return "(untagged)"
+		}
+		// Group by the first tag — VMs with multiple tags appear
+		// under whichever sorts first.
+		return d.Tags[0]
 	case "host":
 		return "" // single-host views; reserved for multi-host expansion
 	}
@@ -1916,6 +1931,13 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 		ub, _ := effectiveUptime(b, hb, m.guestUptime[b.Name])
 		if ua != ub {
 			return flip(ua > ub)
+		}
+		return a.Name < b.Name
+	case sortByTag:
+		ta := strings.Join(a.Tags, ",")
+		tb := strings.Join(b.Tags, ",")
+		if ta != tb {
+			return flip(ta < tb)
 		}
 		return a.Name < b.Name
 	}
@@ -2318,13 +2340,13 @@ func (m Model) execGroupCommand(arg string) Model {
 	case "none", "off":
 		m.groupBy = ""
 		m.foldedGroups = nil
-	case "os", "state":
+	case "os", "state", "arch", "tag":
 		m.groupBy = arg
 		if m.foldedGroups == nil {
 			m.foldedGroups = make(map[string]bool)
 		}
 	default:
-		m.flashf("unknown group field: %s — use os, state, or none", arg)
+		m.flashf("unknown group field: %s — use os, state, arch, tag, or none", arg)
 	}
 	return m
 }

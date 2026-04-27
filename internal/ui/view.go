@@ -313,6 +313,8 @@ var paletteCommands = []paletteCommand{
 	{"group", "group VM list", []paletteArg{
 		{name: "os"},
 		{name: "state"},
+		{name: "arch"},
+		{name: "tag"},
 		{name: "none"},
 	}},
 	{"help", "help", nil},

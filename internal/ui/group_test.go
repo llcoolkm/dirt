@@ -31,7 +31,7 @@ func TestGroupKeyForState(t *testing.T) {
 }
 
 func TestGroupKeyForUnknownReturnsEmpty(t *testing.T) {
-	if got := groupKeyFor(lv.Domain{}, "tag"); got != "" {
+	if got := groupKeyFor(lv.Domain{}, "nonsense"); got != "" {
 		t.Errorf("unknown field should return empty key, got %q", got)
 	}
 }

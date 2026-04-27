@@ -167,6 +167,20 @@ var vmColumns = []column{
 			}
 			return "N"
 		}},
+	{id: "arch", label: "ARCH", width: 8, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.Arch == "" {
+				return "—"
+			}
+			return truncate(d.Arch, 8)
+		}},
+	{id: "tag", label: "TAGS", sort: sortByTag, width: 18, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if len(d.Tags) == 0 {
+				return "—"
+			}
+			return truncate(strings.Join(d.Tags, ","), 18)
+		}},
 }
 
 // filterActiveColumns returns the subset of vmColumns the config

@@ -99,8 +99,8 @@ func TestListViewViewportIndicatorAppearsWhenScrolling(t *testing.T) {
 		marks:         make(map[string]bool),
 		activeColumns: vmColumns,
 		sortColumn:    sortByName,
-		width:         200,
-		height:        20, // smaller than 60 rows
+		width:         300, // wide enough that the viewport tag has room
+		height:        20,  // smaller than 60 rows
 		history:       map[string]*domHistory{},
 		guestUptime:   map[string]lv.GuestUptime{},
 	}

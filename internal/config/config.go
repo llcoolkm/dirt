@@ -81,6 +81,8 @@ func DefaultConfig() Config {
 				"net_rate":   false,
 				"autostart":  false,
 				"persistent": false,
+				"arch":       false,
+				"tag":        false,
 			},
 		},
 	}
