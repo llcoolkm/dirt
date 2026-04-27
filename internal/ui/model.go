@@ -2278,6 +2278,31 @@ func (m Model) execThemeCommand(name string) Model {
 	return m
 }
 
+// execSaveCommand serialises the master's current runtime
+// preferences back to config.yaml at ConfigPath(). Theme, sort,
+// column visibility, and mark-advance behaviour all survive; the
+// list of hosts and the libvirt URI are config concerns and stay
+// untouched by this path.
+func (m Model) execSaveCommand() (Model, tea.Cmd) {
+	visibility := m.currentColumnVisibility()
+	cfg := config.Config{
+		Refresh: m.refreshInterval,
+		Theme:   currentTheme,
+		List: config.ListConfig{
+			SortBy:      sortColumnID(m.sortColumn),
+			SortReverse: m.sortDesc,
+			MarkAdvance: m.markAdvance,
+			Columns:     visibility,
+		},
+	}
+	if err := config.SaveConfig(cfg); err != nil {
+		m.flashf("✗ save: %v", err)
+		return m, nil
+	}
+	m.flashf("✓ saved → %s", config.ConfigPath())
+	return m, nil
+}
+
 // execGroupCommand routes :group <field>. Empty arg flashes the
 // current grouping; "none" turns it off and clears the fold map.
 func (m Model) execGroupCommand(arg string) Model {
@@ -2767,6 +2792,12 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		// duration. On exit the file is re-read and runtime state
 		// (theme, column visibility, sort) re-applied.
 		return m, m.runConfigEdit()
+	case "save":
+		// Persist the runtime preferences (theme, sort, columns,
+		// mark advance) to config.yaml so they survive a restart.
+		// Hand-written comments WILL be lost — `:config` then
+		// editing remains the way to keep them.
+		return m.execSaveCommand()
 	case "mark", "mark all", "mark invert", "mark none", "unmark":
 		return m.execMarkCommand(cmd), nil
 	case "resume":
