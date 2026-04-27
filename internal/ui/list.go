@@ -144,6 +144,29 @@ var vmColumns = []column{
 			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
 			return "[" + storageColorBar(pct, 5) + "]"
 		}},
+	{id: "net_rate", label: "NET", width: 16, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return "—"
+			}
+			rx := currentRate(h.netRx)
+			tx := currentRate(h.netTx)
+			return fmt.Sprintf("↓%s ↑%s", formatRate(rx), formatRate(tx))
+		}},
+	{id: "autostart", label: "AUTO", width: 5, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.Autostart {
+				return "Y"
+			}
+			return "N"
+		}},
+	{id: "persistent", label: "PERS", width: 5, leftAlign: true,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.Persistent {
+				return "Y"
+			}
+			return "N"
+		}},
 }
 
 // filterActiveColumns returns the subset of vmColumns the config
