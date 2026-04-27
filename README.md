@@ -12,8 +12,11 @@ I worked almost exclusively in the console and have been missing a simple TUI to
 
 ## Features
 
-- **Live VM table** — name, state, IP, OS, vCPU, memory, MEM%, CPU%, uptime, IO-R, IO-W
-- **Sortable columns** — `1`–`9` to sort by any column, press again to reverse
+- **Live VM table** — name, state, IP, OS, vCPU, memory, MEM%, CPU%, uptime, IO-R, IO-W. Optional columns toggleable via `:columns`: coloured `cpu_bar`/`mem_bar`/`disk_bar` mini-bars, `net_rate` (`↓rx ↑tx`), `autostart`, `persistent`, `arch`, `tag`
+- **Sortable columns** — `:sort <col> [desc]` or click any column header to sort by it; click the active column to toggle direction
+- **Marks and bulk operations** — `space` to mark a row, `*` to invert, `:mark all/invert/none` for bulk; `s/S/D/R/p/U` then act on the marked set with a single confirmation. Mass undefine above 20 demands a typed phrase
+- **Vim numeric prefixes** — `5j`, `20G`, `5<space>` (mark next 5)
+- **Grouping & folding** — `:group os|state|arch|tag|none` clusters rows under aggregate headers; `z` folds/unfolds the group at the cursor
 - **Host header** (when no VM is selected): live host CPU%, multi-segment memory bar, swap bar, load average, vCPU + memory overcommit ratios
 - **Per-VM header** for the highlighted VM:
   - **CPU bar** with percent (green / yellow / red by load)
@@ -26,16 +29,19 @@ I worked almost exclusively in the console and have been missing a simple TUI to
 - **Performance graphs** — tabbed braille time-series charts for CPU, memory, disk I/O, and network (`:perf`), 5-minute rolling window
 - **Live migration** — `M` to migrate a running VM to another host with progress tracking
 - **VM clone** — `C` to clone a stopped VM with `virt-clone`
-- **Hot-plug devices** — `A` to attach disks or NICs to a running VM
+- **Hot-plug devices** — `A` to attach disks or NICs to a running VM, `X` to detach by target dev / MAC
 - **Background jobs** — long-running operations (migration, snapshots, clone) run asynchronously with progress in the status bar and a dedicated `:jobs` view
 - **Snapshot management** — list, create, revert, delete as background jobs (`:snap`)
-- **Networks view** — start/stop/autostart toggle, DHCP lease drill-down with hostname/MAC/IP/expiry (`:net`)
+- **Networks view** — start/stop/autostart toggle, DHCP lease drill-down, host-side bridge RX/TX rate columns from `/sys/class/net/<bridge>/statistics/` (`:net`)
 - **Storage pools view** — capacity bars with colour warnings, drill into volumes, create/delete volumes (`:pool`)
+- **Export** — `:export csv|json [path]` dumps the filtered VM list, honouring the active sort and column visibility
 - **Undefine with storage** — `U` to undefine a VM; optionally delete all associated disk images via libvirt pool APIs
 - **Anomaly detection** — flash warning when any VM sustains CPU% or memory above 90% for 5+ seconds
 - **Full domain lifecycle** from single keypresses
 - **Live serial console** via `virsh console` (Tea suspends, virsh runs, Tea resumes on detach)
-- **Colour themes** — default (dark), light, solarized, gruvbox via `config.yaml`
+- **Colour themes** — `default`, `light`, `solarized`, `solarized_light`, `gruvbox`, `shades` (greyscale), `mono` (pure two-tone, attribute-driven), `phosphor` (CRT green) — hot-swap via `:theme <name>`
+- **Persistent preferences** — `:save` (or `:w`) writes runtime theme, sort, column visibility, mark advance behaviour back to `config.yaml`. `:wq` saves and quits. `:config` opens it in `$EDITOR` and reloads on save
+- **Configurable mark advance** — `list.mark_advance: directional` (default, follows last cursor motion), `down` (always proceed downward), or `none` (pure toggle)
 - **Detail view** with full XML, scrollable, and **incremental `/` search** with match highlights and a position indicator
 - **Command palette** — `:` with prefix matching and tab completion
 - **Vim-style keybindings** throughout
@@ -160,7 +166,15 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 |-----|--------|
 | `/` | filter VM list by substring |
 | `Esc` | clear filter (after marks and pending count) |
-| `:sort <col> [desc]` | sort by `name`, `state`, `ip`, `os`, `vcpu`, `mem`, `mem_pct`, `cpu`, `uptime`; optional `desc` reverses |
+| `:sort <col> [desc]` | sort by `name`, `state`, `ip`, `os`, `vcpu`, `mem`, `mem_pct`, `cpu`, `uptime`, `tag`; optional `desc` reverses |
+| *click column header* | sort by that column; click again to toggle direction. Works on the main, `:net`, `:pool`, and `:host` tables |
+
+### Grouping & folding
+| Key | Action |
+|-----|--------|
+| `:group os` / `:group state` / `:group arch` / `:group tag` | cluster rows under aggregate group headers |
+| `:group none` | ungroup |
+| `z` | fold / unfold the group at the cursor |
 
 ### Lifecycle (cursor row, or every marked VM if marks are set)
 | Key | Action |
@@ -174,6 +188,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `M` | live migrate to another host (single-target only) |
 | `C` | clone a stopped VM (single-target only) |
 | `A` | hot-plug device — `d` for disk, `n` for NIC (single-target only) |
+| `X` | hot-remove device — `d` (target dev like `vdb`) or `n` (MAC) (single-target only) |
 | `c` | open serial console (`Ctrl-]` to detach) (single-target only) |
 | `v` | open graphical console via `virt-viewer` (single-target only) |
 | `e` | edit XML in `$EDITOR` (single-target only) |
@@ -193,7 +208,13 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `:host` | list of known libvirt endpoints (switch hypervisors) |
 | `:perf` | performance graphs for selected VM |
 | `:jobs` | background jobs (migrations, snapshots, clone) |
-| `:theme <name>` | hot-swap palette (`default`, `light`, `solarized`, `gruvbox`, `shades`, `mono`, `phosphor`) |
+| `:resume` | bulk-resume marked paused VMs (or cursor row) |
+| `:columns` | open column-visibility picker; `:columns reset` restores defaults |
+| `:export csv|json [path]` | dump filtered VM list to a file |
+| `:theme <name>` | hot-swap palette: `default`, `light`, `solarized`, `solarized_light`, `gruvbox`, `shades`, `mono`, `phosphor` |
+| `:config` | open config in `$EDITOR`, reload on save |
+| `:save` (`:w`, `:write`) | persist runtime preferences to `config.yaml` |
+| `:wq` (`:x`) | save and quit |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
 | `:q` | quit |
