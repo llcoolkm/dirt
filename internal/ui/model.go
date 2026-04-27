@@ -117,10 +117,10 @@ type Model struct {
 	// to advance after marking. Zero defaults to +1.
 	lastDir int
 
-	// markAdvance controls SPACE's advance direction. "directional"
-	// (default) follows lastDir; "down" always moves down regardless
-	// of the master's last cursor motion. Empty string is treated as
-	// "directional".
+	// markAdvance controls SPACE's advance direction:
+	//   - "directional" / "" — follow lastDir (default).
+	//   - "down"             — always move down.
+	//   - "none"             — don't move; SPACE is a pure toggle.
 	markAdvance string
 
 	// Filter mode (for the main VM list).
@@ -2127,16 +2127,21 @@ func (m Model) dirOrDown() int {
 // 1). Direction follows m.markAdvance:
 //   - "directional" / "" — last cursor motion (default).
 //   - "down"             — always advance down.
+//   - "none"             — pure toggle, cursor stays put.
 // Leaves lastDir untouched so a run of SPACEs keeps travelling.
 func (m Model) doSpace(doms []lv.Domain) (tea.Model, tea.Cmd) {
 	n := m.consumeCount()
+	stay := m.markAdvance == "none"
 	dir := +1
-	if m.markAdvance != "down" {
+	if !stay && m.markAdvance != "down" {
 		dir = m.dirOrDown()
 	}
 	for i := 0; i < n; i++ {
 		if d, ok := m.currentDomain(); ok {
 			m.toggleMark(d.UUID)
+		}
+		if stay {
+			continue
 		}
 		if dir == +1 {
 			if m.selected < len(doms)-1 {

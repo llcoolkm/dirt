@@ -49,10 +49,11 @@ type ListConfig struct {
 	// accidentally hide everything.
 	Columns map[string]bool `yaml:"columns"`
 
-	// MarkAdvance controls how SPACE moves the cursor after marking.
-	// "directional" (default): follow the last cursor direction
-	// (j/G → down, k/g → up). "down": always advance down — simpler
-	// mental model for users who find directional surprising.
+	// MarkAdvance controls how SPACE moves the cursor after marking:
+	//   - "directional" (default) — follow the last cursor direction
+	//     (j/G → down, k/g → up).
+	//   - "down"  — always advance down regardless of last motion.
+	//   - "none"  — do not move the cursor; SPACE is a pure toggle.
 	MarkAdvance string `yaml:"mark_advance"`
 }
 
