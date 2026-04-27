@@ -73,6 +73,26 @@ var themes = map[string]palette{
 		swap:     lipgloss.Color("162"),
 		mark:     lipgloss.Color("37"), // solarized cyan
 	},
+	// Solarized Light — canonical Solarized for terminals with a
+	// light (base3 230 / base2 254) background. base00 fg on the
+	// terminal's white-ish backdrop, with the same hue accents as
+	// solarized dark.
+	"solarized_light": {
+		fg:       lipgloss.Color("241"), // base00
+		muted:    lipgloss.Color("245"), // base1
+		border:   lipgloss.Color("245"), // base1
+		accent:   lipgloss.Color("125"), // magenta
+		running:  lipgloss.Color("64"),  // green
+		paused:   lipgloss.Color("136"), // yellow
+		crashed:  lipgloss.Color("160"), // red
+		dimmed:   lipgloss.Color("245"), // base1
+		selectBG: lipgloss.Color("254"), // base2 — light highlight
+		selectFG: lipgloss.Color("235"), // base02 — dark text
+		memUsed:  lipgloss.Color("64"),
+		memCache: lipgloss.Color("136"),
+		swap:     lipgloss.Color("125"),
+		mark:     lipgloss.Color("37"), // solarized cyan
+	},
 	"gruvbox": {
 		fg:       lipgloss.Color("223"),  // fg
 		muted:    lipgloss.Color("246"),  // gray
