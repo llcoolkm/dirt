@@ -2,6 +2,53 @@
 
 All notable changes to dirt are documented here.
 
+## v0.9.0 — 2026-04-27
+
+**Bulk operations expanded, persistent preferences, more columns, more themes, header-click sort.**
+
+### Marks and bulk operations
+- `:resume` palette command — bulk-resume every marked paused VM (or the cursor row when no marks are set).
+- Single-target actions (`o` ssh, `c` console, `v` viewer, `e` edit, `x` xml, `Enter` info, `C` clone, `A` attach, `M` migrate) now flash *"<action> is single-target — acting on cursor row"* when marks are set, then proceed on the cursor.
+
+### Hot-plug
+- `X` detaches a disk by target device (`vdb`, `vdc`, …) or a NIC by MAC. Reuses the attach prompt machinery with a `detach` verb.
+
+### Bridge stats
+- Two new RX/TX rate columns in the `:net` view, fed by `/sys/class/net/<bridge>/statistics/`. Remote libvirt URIs without local /sys mapping render as `—` rather than failing.
+
+### Columns
+- `:columns` opens a runtime picker mode listing every column in `vmColumns`. SPACE / Enter toggles, `a` shows all, `n` hides every non-required, Esc returns. Required columns refuse to hide.
+- New columns: `cpu_bar`, `mem_bar`, `disk_bar` — coloured mini-bars (`[█████]`) honouring the active theme. `disk_bar` uses storage thresholds (80 / 95 %).
+- New columns: `net_rate` (combined `↓rx ↑tx`), `autostart`, `persistent`, `arch`, `tag`. All default off.
+
+### Grouping
+- `:group arch` and `:group tag` join `:group os` and `:group state`. Domains without a tag fall under `(untagged)`.
+- `tag` is a sortable column; metadata convention: `<metadata><dirt:tags xmlns:dirt="https://github.com/llcoolkm/dirt/tags/0.1">a,b,c</dirt:tags></metadata>` (set via `virsh edit`).
+
+### Export
+- `:export csv|json [path]` dumps the current filtered VM list, honouring active sort and column visibility. Default destination is `$HOME/dirt-export-<timestamp>.<ext>`.
+
+### Per-VM info pane
+- Each disk now shows a coloured capacity bar beside its source path (driven by `virDomainGetBlockInfo`).
+- Each NIC shows a live `↓rx / ↑tx / pps` line under its identity row.
+- The title bar carries 16-cell CPU and MEM sparklines plus current values, right-aligned.
+
+### Themes
+- Three new themes: `shades` (greyscale), `mono` (pure two-tone, attribute-driven), `phosphor` (CRT green).
+- `solarized` brightened so `fg` is readable on dark terminals; new `solarized_light` carries the canonical Solarized Light palette for bright terminals.
+- ntcharts axis / label styles, `matchStyle` / `matchCurrentStyle`, `vcpuColors`, and every table cell now follow the active theme.
+
+### Configuration
+- `:config` opens `config.yaml` in `$EDITOR` and reloads on exit.
+- `:save` (alias `:w`, `:write`) persists current runtime preferences (theme, sort, columns, mark-advance) back to `config.yaml`. `:wq` (or `:x`) saves and quits.
+- New `list.mark_advance` config field — `directional` (default, follows last cursor motion) or `down` (always advance downward after marking).
+
+### Mouse
+- Click a column header to sort by it. Click the active sort column to toggle direction. Non-sortable columns are ignored.
+
+### Tests
+- Test suite expanded — `internal/ui` coverage 4.7 % → 30.1 %; new tests cover marks, bulk dispatch, numeric counts, palette completion, group key derivation, bridge rate math, sort/filter, themes, viewport indicator, mark glyph rendering, attach/detach state machine, columns picker, confirm/typed-confirm dialog, and Update routing.
+
 ## v0.8.0 — 2026-04-25
 
 **Bulk operations, vim numeric prefixes, palette overhaul, three new themes.**

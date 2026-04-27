@@ -74,7 +74,7 @@ No git clone is required — `go install` pulls the source from the module proxy
 ### Pinning a specific version
 
 ```sh
-go install github.com/llcoolkm/dirt@v0.8.0   # exact tag
+go install github.com/llcoolkm/dirt@v0.9.0   # exact tag
 go install github.com/llcoolkm/dirt@main     # bleeding edge
 ```
 
