@@ -54,21 +54,24 @@ var themes = map[string]palette{
 		swap:     lipgloss.Color("5"),
 		mark:     lipgloss.Color("6"),
 	},
+	// Solarized — hue from the canonical palette but lifted in
+	// brightness so the foreground stays readable on a default dark
+	// terminal. The original base0 (244) renders almost grey.
 	"solarized": {
-		fg:       lipgloss.Color("244"),  // base0
-		muted:    lipgloss.Color("245"),  // base1
-		border:   lipgloss.Color("240"),  // base01
-		accent:   lipgloss.Color("125"),  // magenta
-		running:  lipgloss.Color("64"),   // green
-		paused:   lipgloss.Color("136"),  // yellow
-		crashed:  lipgloss.Color("160"),  // red
-		dimmed:   lipgloss.Color("241"),  // base00
-		selectBG: lipgloss.Color("236"),  // base02
-		selectFG: lipgloss.Color("230"),  // base3
-		memUsed:  lipgloss.Color("64"),   // green
-		memCache: lipgloss.Color("136"),  // yellow
-		swap:     lipgloss.Color("125"),  // magenta
-		mark:     lipgloss.Color("37"),   // cyan
+		fg:       lipgloss.Color("250"), // brightened base0
+		muted:    lipgloss.Color("245"), // base1
+		border:   lipgloss.Color("240"), // base01
+		accent:   lipgloss.Color("162"), // bright magenta
+		running:  lipgloss.Color("70"),  // brighter green
+		paused:   lipgloss.Color("172"), // brighter yellow
+		crashed:  lipgloss.Color("167"), // brighter red
+		dimmed:   lipgloss.Color("242"), // base00
+		selectBG: lipgloss.Color("237"), // dark backdrop
+		selectFG: lipgloss.Color("254"), // base2 — very light
+		memUsed:  lipgloss.Color("70"),
+		memCache: lipgloss.Color("172"),
+		swap:     lipgloss.Color("162"),
+		mark:     lipgloss.Color("37"), // solarized cyan
 	},
 	"gruvbox": {
 		fg:       lipgloss.Color("223"),  // fg
