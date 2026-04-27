@@ -300,7 +300,8 @@ var paletteCommands = []paletteCommand{
 	{"jobs", "background jobs", nil},
 	{"columns", "show / hide table columns", nil},
 	{"config", "edit config in $EDITOR", nil},
-	{"save", "persist runtime preferences to config.yaml", nil},
+	{"save", "persist runtime preferences to config.yaml (alias :w)", nil},
+	{"wq", "save and quit", nil},
 	{"export", "export VM list to file", []paletteArg{
 		{name: "csv"},
 		{name: "json"},

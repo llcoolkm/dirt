@@ -2792,12 +2792,16 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		// duration. On exit the file is re-read and runtime state
 		// (theme, column visibility, sort) re-applied.
 		return m, m.runConfigEdit()
-	case "save":
+	case "save", "w", "write":
 		// Persist the runtime preferences (theme, sort, columns,
 		// mark advance) to config.yaml so they survive a restart.
 		// Hand-written comments WILL be lost — `:config` then
 		// editing remains the way to keep them.
 		return m.execSaveCommand()
+	case "wq", "x":
+		// Vim-style save-and-quit.
+		newM, _ := m.execSaveCommand()
+		return newM, tea.Quit
 	case "mark", "mark all", "mark invert", "mark none", "unmark":
 		return m.execMarkCommand(cmd), nil
 	case "resume":
