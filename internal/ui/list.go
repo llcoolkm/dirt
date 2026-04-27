@@ -145,14 +145,19 @@ var vmColumns = []column{
 			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
 			return "[" + storageColorBar(pct, 5) + "]"
 		}},
-	{id: "net_rate", label: "NET", width: 16, leftAlign: true,
+	{id: "net_rx", label: "NET-RX", width: 8, leftAlign: false,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
-			rx := currentRate(h.netRx)
-			tx := currentRate(h.netTx)
-			return fmt.Sprintf("↓%s ↑%s", formatRate(rx), formatRate(tx))
+			return formatRate(currentRate(h.netRx))
+		}},
+	{id: "net_tx", label: "NET-TX", width: 8, leftAlign: false,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.State != lv.StateRunning || h == nil {
+				return "—"
+			}
+			return formatRate(currentRate(h.netTx))
 		}},
 	{id: "autostart", label: "AUTO", width: 5, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
