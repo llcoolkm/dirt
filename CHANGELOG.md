@@ -41,10 +41,14 @@ All notable changes to dirt are documented here.
 ### Configuration
 - `:config` opens `config.yaml` in `$EDITOR` and reloads on exit.
 - `:save` (alias `:w`, `:write`) persists current runtime preferences (theme, sort, columns, mark-advance) back to `config.yaml`. `:wq` (or `:x`) saves and quits.
-- New `list.mark_advance` config field — `directional` (default, follows last cursor motion) or `down` (always advance downward after marking).
+- New `list.mark_advance` config field — `directional` (default, follows last cursor motion), `down` (always advance downward), or `none` (pure toggle, no movement).
+- `:columns reset` restores default column visibility without touching the config file.
 
 ### Mouse
-- Click a column header to sort by it. Click the active sort column to toggle direction. Non-sortable columns are ignored.
+- Click a column header to sort by it. Click the active sort column to toggle direction. Works on the main VM list, `:net`, `:pool`, and `:host`. Non-sortable columns are ignored.
+
+### Bug fixes
+- Selected-row highlight now spans the whole row even when cells contain coloured ANSI (bar columns, state cells). Previously the highlight stopped at the first inner `\x1b[m` reset.
 
 ### Tests
 - Test suite expanded — `internal/ui` coverage 4.7 % → 30.1 %; new tests cover marks, bulk dispatch, numeric counts, palette completion, group key derivation, bridge rate math, sort/filter, themes, viewport indicator, mark glyph rendering, attach/detach state machine, columns picker, confirm/typed-confirm dialog, and Update routing.
