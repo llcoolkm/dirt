@@ -48,6 +48,12 @@ type ListConfig struct {
 	// map is treated as visible (true), so a fresh config doesn't
 	// accidentally hide everything.
 	Columns map[string]bool `yaml:"columns"`
+
+	// MarkAdvance controls how SPACE moves the cursor after marking.
+	// "directional" (default): follow the last cursor direction
+	// (j/G → down, k/g → up). "down": always advance down — simpler
+	// mental model for users who find directional surprising.
+	MarkAdvance string `yaml:"mark_advance"`
 }
 
 // DefaultConfig returns dirt's built-in defaults. These match the
@@ -59,15 +65,19 @@ func DefaultConfig() Config {
 		List: ListConfig{
 			SortBy:      "state",
 			SortReverse: false,
+			MarkAdvance: "directional",
 			Columns: map[string]bool{
-				"os":      true,
-				"vcpu":    true,
-				"mem":     true,
-				"mem_pct": true,
-				"cpu":     true,
-				"uptime":  true,
-				"io_r":    true,
-				"io_w":    true,
+				"os":       true,
+				"vcpu":     true,
+				"mem":      true,
+				"mem_pct":  true,
+				"cpu":      true,
+				"uptime":   true,
+				"io_r":     true,
+				"io_w":     true,
+				"cpu_bar":  false,
+				"mem_bar":  false,
+				"disk_bar": false,
 			},
 		},
 	}

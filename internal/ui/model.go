@@ -117,6 +117,12 @@ type Model struct {
 	// to advance after marking. Zero defaults to +1.
 	lastDir int
 
+	// markAdvance controls SPACE's advance direction. "directional"
+	// (default) follows lastDir; "down" always moves down regardless
+	// of the master's last cursor motion. Empty string is treated as
+	// "directional".
+	markAdvance string
+
 	// Filter mode (for the main VM list).
 	filtering bool
 	filter    string
@@ -319,6 +325,7 @@ func (m Model) WithConfig(cfg config.Config) Model {
 	m.sortColumn = sortColumnFromID(cfg.List.SortBy)
 	m.sortDesc = cfg.List.SortReverse
 	m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
+	m.markAdvance = cfg.List.MarkAdvance
 	ApplyTheme(cfg.Theme)
 	return m
 }
@@ -736,6 +743,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sortColumn = sortColumnFromID(cfg.List.SortBy)
 		m.sortDesc = cfg.List.SortReverse
 		m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
+		m.markAdvance = cfg.List.MarkAdvance
 		ApplyTheme(cfg.Theme)
 		m.flashf("✓ config reloaded (%s)", msg.path)
 		return m, nil
@@ -2094,11 +2102,16 @@ func (m Model) dirOrDown() int {
 
 // doSpace handles SPACE in the main list: toggle the mark on the
 // cursor row and advance `n` times (from the pending count, default
-// 1) in the last motion direction. Leaves lastDir untouched so a run
-// of SPACEs keeps travelling.
+// 1). Direction follows m.markAdvance:
+//   - "directional" / "" — last cursor motion (default).
+//   - "down"             — always advance down.
+// Leaves lastDir untouched so a run of SPACEs keeps travelling.
 func (m Model) doSpace(doms []lv.Domain) (tea.Model, tea.Cmd) {
 	n := m.consumeCount()
-	dir := m.dirOrDown()
+	dir := +1
+	if m.markAdvance != "down" {
+		dir = m.dirOrDown()
+	}
 	for i := 0; i < n; i++ {
 		if d, ok := m.currentDomain(); ok {
 			m.toggleMark(d.UUID)
