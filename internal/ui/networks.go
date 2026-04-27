@@ -72,14 +72,27 @@ func renderNetworkRow(n lv.Network, rate bridgeRate, selected bool) string {
 	if n.Active {
 		leases = fmt.Sprintf("%d", n.NumLeases)
 	}
-	stateColored := style.Render(padRight(state, netStateW))
-
 	rxStr, txStr := "—", "—"
 	if rate.available {
 		rxStr = formatRate(rate.rxBps)
 		txStr = formatRate(rate.txBps)
 	}
 
+	if selected {
+		row := strings.Join([]string{
+			padRight(truncate(n.Name, netNameW), netNameW),
+			padRight(state, netStateW),
+			padRight(auto, netAutoW),
+			padRight(truncate(n.Bridge, netBridgeW), netBridgeW),
+			padRight(truncate(n.Forward, netForwardW), netForwardW),
+			padLeft(leases, netLeasesW),
+			padLeft(rxStr, netRateW),
+			padLeft(txStr, netRateW),
+		}, "  ")
+		return rowSelected.Render(" " + row)
+	}
+
+	stateColored := style.Render(padRight(state, netStateW))
 	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
 		fg.Render(padRight(truncate(n.Name, netNameW), netNameW)),
@@ -91,13 +104,7 @@ func renderNetworkRow(n lv.Network, rate bridgeRate, selected bool) string {
 		fg.Render(padLeft(rxStr, netRateW)),
 		fg.Render(padLeft(txStr, netRateW)),
 	}
-	row := strings.Join(cols, "  ")
-	if selected {
-		cols[1] = padRight(state, netStateW)
-		row = strings.Join(cols, "  ")
-		return rowSelected.Render(" " + row)
-	}
-	return " " + row
+	return " " + strings.Join(cols, "  ")
 }
 
 // leasesView renders the DHCP leases for a selected network.

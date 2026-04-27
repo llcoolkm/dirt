@@ -70,7 +70,6 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 	} else if state == "degraded" || state == "inaccessible" {
 		style = stateCrashed
 	}
-	stateColored := style.Render(padRight(state, poolStateW))
 
 	cap := formatBytes(float64(p.Capacity))
 	alloc := formatBytes(float64(p.Allocation))
@@ -80,6 +79,24 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 	if p.Capacity > 0 {
 		usagePct = float64(p.Allocation) / float64(p.Capacity) * 100
 	}
+
+	// Selected rows must carry no inner ANSI — any `\x1b[m` reset
+	// inside a cell terminates the rowSelected wrap mid-row.
+	if selected {
+		pctStr := fmt.Sprintf(" %3.0f%%", usagePct)
+		row := strings.Join([]string{
+			padRight(truncate(p.Name, poolNameW), poolNameW),
+			padRight(state, poolStateW),
+			padRight(truncate(p.Type, poolTypeW), poolTypeW),
+			padLeft(cap, poolCapW),
+			padLeft(alloc, poolAllocW),
+			padLeft(free, poolFreeW),
+			padRight(strings.Repeat("|", int(usagePct/100*float64(poolUsageW-7)))+pctStr, poolUsageW),
+		}, "  ")
+		return rowSelected.Render(" " + row)
+	}
+
+	stateColored := style.Render(padRight(state, poolStateW))
 	pctStr := fmt.Sprintf(" %3.0f%%", usagePct)
 	if usagePct >= 95 {
 		pctStr = errorStyle.Render(pctStr)
@@ -98,13 +115,7 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 		fg.Render(padLeft(free, poolFreeW)),
 		usageBar,
 	}
-	row := strings.Join(cols, "  ")
-	if selected {
-		cols[1] = padRight(state, poolStateW)
-		row = strings.Join(cols, "  ")
-		return rowSelected.Render(" " + row)
-	}
-	return " " + row
+	return " " + strings.Join(cols, "  ")
 }
 
 func poolsStatusBar(m Model, width int) string {
@@ -191,6 +202,16 @@ func volumeStatusBar(m Model, width int) string {
 }
 
 func renderVolumeRow(v lv.StorageVolume, selected bool) string {
+	if selected {
+		row := strings.Join([]string{
+			padRight(truncate(v.Name, volNameW), volNameW),
+			padRight(truncate(v.Type, volTypeW), volTypeW),
+			padLeft(formatBytes(float64(v.Capacity)), volCapW),
+			padLeft(formatBytes(float64(v.Allocation)), volAllocW),
+			padRight(truncate(v.Path, volPathW), volPathW),
+		}, "  ")
+		return rowSelected.Render(" " + row)
+	}
 	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
 		fg.Render(padRight(truncate(v.Name, volNameW), volNameW)),
@@ -199,9 +220,5 @@ func renderVolumeRow(v lv.StorageVolume, selected bool) string {
 		fg.Render(padLeft(formatBytes(float64(v.Allocation)), volAllocW)),
 		fg.Render(padRight(truncate(v.Path, volPathW), volPathW)),
 	}
-	row := strings.Join(cols, "  ")
-	if selected {
-		return rowSelected.Render(" " + row)
-	}
-	return " " + row
+	return " " + strings.Join(cols, "  ")
 }

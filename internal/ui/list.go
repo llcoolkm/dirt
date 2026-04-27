@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
 
@@ -398,6 +399,12 @@ func renderDataRow(cols []column, d lv.Domain, h *domHistory, qga lv.GuestUptime
 	cells := make([]string, 0, nCols)
 	for _, c := range cols[:nCols] {
 		raw := c.render(d, h, qga)
+		// Stripping ANSI is essential for selected rows: an inner
+		// `\x1b[m` reset (from a coloured bar or state cell) would
+		// terminate the rowSelected style mid-row.
+		if selected {
+			raw = ansi.Strip(raw)
+		}
 		var padded string
 		if c.leftAlign {
 			padded = padRight(raw, c.width)

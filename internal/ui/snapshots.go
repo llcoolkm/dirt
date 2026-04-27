@@ -192,12 +192,22 @@ func renderSnapshotRow(s lv.DomainSnapshot, prefix string, selected bool) string
 	if s.SizeBytes > 0 {
 		size = formatBytes(float64(s.SizeBytes))
 	}
-	state := stateColorBySnapshotState(s.State).Render(padRight(s.State, snapStateW))
-
 	// Tree prefix + name, truncated to the column width. lipgloss.Width
 	// is aware of the multi-byte tree glyphs so truncation is correct.
 	name := truncate(prefix+s.Name, snapNameW)
 
+	if selected {
+		row := strings.Join([]string{
+			padRight(name, snapNameW),
+			padRight(s.State, snapStateW),
+			padLeft(size, snapSizeW),
+			padRight(current, snapCurrentW),
+			padRight(when, snapWhenW),
+		}, "  ")
+		return rowSelected.Render(" " + row)
+	}
+
+	state := stateColorBySnapshotState(s.State).Render(padRight(s.State, snapStateW))
 	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
 		fg.Render(padRight(name, snapNameW)),
@@ -206,14 +216,7 @@ func renderSnapshotRow(s lv.DomainSnapshot, prefix string, selected bool) string
 		fg.Render(padRight(current, snapCurrentW)),
 		fg.Render(padRight(when, snapWhenW)),
 	}
-	row := strings.Join(cols, "  ")
-	if selected {
-		// Strip color in selected mode for consistent inversion.
-		cols[1] = padRight(s.State, snapStateW)
-		row = strings.Join(cols, "  ")
-		return rowSelected.Render(" " + row)
-	}
-	return " " + row
+	return " " + strings.Join(cols, "  ")
 }
 
 // stateColorBySnapshotState colours snapshot states (running/shutoff/paused).

@@ -257,6 +257,17 @@ func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected
 	if p.state == probeOK {
 		domainsStr = fmt.Sprintf("%d", p.domains)
 	}
+
+	if selected {
+		row := strings.Join([]string{
+			padRight(truncate(h.Name, hostsNameW), hostsNameW),
+			padRight(truncate(h.URI, hostsURIW), hostsURIW),
+			padRight(statusStr, hostsStatusW),
+			padLeft(domainsStr, hostsDomainsW),
+		}, "  ")
+		return rowSelected.Render(" " + row)
+	}
+
 	fg := lipgloss.NewStyle().Foreground(colFG)
 	cols := []string{
 		fg.Render(padRight(truncate(h.Name, hostsNameW), hostsNameW)),
@@ -264,14 +275,7 @@ func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected
 		statusStyle.Render(padRight(statusStr, hostsStatusW)),
 		fg.Render(padLeft(domainsStr, hostsDomainsW)),
 	}
-	row := strings.Join(cols, "  ")
-	if selected {
-		// Redo without the status color so rowSelected doesn't stack colors.
-		cols[2] = padRight(statusStr, hostsStatusW)
-		row = strings.Join(cols, "  ")
-		return rowSelected.Render(" " + row)
-	}
-	return " " + row
+	return " " + strings.Join(cols, "  ")
 }
 
 // probeDisplay returns the short status label and its lipgloss style for
