@@ -35,7 +35,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case viewMain:
-		return m.mouseClickMain(msg.Y)
+		return m.mouseClickMain(msg.X, msg.Y)
 	case viewHosts:
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.hosts)); ok {
 			m.hostsSel = idx
@@ -111,22 +111,70 @@ func (m Model) mouseWheel(dir int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// mouseClickMain handles a left-click in the main VM list. The layout
-// is: header pane (9 rows wide / 18 rows stacked) + list box top border
-// + column-header row + data rows. A click below the list bottom border
-// is ignored.
-func (m Model) mouseClickMain(y int) (tea.Model, tea.Cmd) {
+// mouseClickMain handles a left-click in the main VM list. The
+// layout is: header pane (9 rows / 18 rows stacked) + list box top
+// border + column-header row + data rows. A click on the column-
+// header row sorts by that column (or toggles direction if it is
+// already the active sort); a click below the list bottom border is
+// ignored.
+func (m Model) mouseClickMain(x, y int) (tea.Model, tea.Cmd) {
 	doms := m.visibleDomains()
+	headerY := m.headerPaneHeight() + 1 // list top border at headerPaneHeight, column header below it
+	first := headerY + 1                // first data row
+	if y == headerY {
+		return m.headerClickSort(x), nil
+	}
 	if len(doms) == 0 {
 		return m, nil
 	}
-	first := m.headerPaneHeight() + 2 // list top border + column-header row
 	idx := y - first + m.offset
 	if idx < 0 || idx >= len(doms) {
 		return m, nil
 	}
 	m.selected = idx
 	return m, nil
+}
+
+// headerClickSort maps the x-coordinate of a click on the column-
+// header row to a column and applies it as the new sort key. Clicks
+// on the same column toggle direction; non-sortable columns are
+// ignored. The leading two cells (border + indent) are non-column.
+func (m Model) headerClickSort(x int) Model {
+	cols := m.activeColumns
+	if len(cols) == 0 {
+		cols = vmColumns
+	}
+	inner := m.contentWidth() - borderWidth - 2
+	if inner < 1 {
+		inner = 1
+	}
+	nCols := fitColumns(cols, inner)
+	// Header layout: 1 (left border) + 1 (padding) + 1 (indent) +
+	// columns separated by 2 spaces. The visible columns start at
+	// xStart in the terminal frame.
+	xStart := 3
+	cur := xStart
+	for i, c := range cols[:nCols] {
+		end := cur + c.width
+		if x >= cur && x < end {
+			if c.sort == 0 {
+				return m
+			}
+			if m.sortColumn == c.sort {
+				m.sortDesc = !m.sortDesc
+			} else {
+				m.sortColumn = c.sort
+				m.sortDesc = false
+			}
+			return m
+		}
+		if i < nCols-1 {
+			cur = end + 2 // two-space separator
+		} else {
+			cur = end
+		}
+	}
+	return m
 }
 
 // clickedSubviewRow maps a terminal Y coordinate to a row index in the
