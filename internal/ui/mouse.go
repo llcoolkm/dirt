@@ -37,14 +37,23 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case viewMain:
 		return m.mouseClickMain(msg.X, msg.Y)
 	case viewHosts:
+		if msg.Y == subviewHeaderY {
+			return m.hostHeaderClick(msg.X), nil
+		}
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.hosts)); ok {
 			m.hostsSel = idx
 		}
 	case viewNetworks:
+		if msg.Y == subviewHeaderY {
+			return m.netHeaderClick(msg.X), nil
+		}
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.networks)); ok {
 			m.networksSel = idx
 		}
 	case viewPools:
+		if msg.Y == subviewHeaderY {
+			return m.poolHeaderClick(msg.X), nil
+		}
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.pools)); ok {
 			m.poolsSel = idx
 		}
@@ -176,6 +185,15 @@ func (m Model) headerClickSort(x int) Model {
 	}
 	return m
 }
+
+// Subview layout constants.
+//
+//	Y=0  top border
+//	Y=1  title row
+//	Y=2  blank
+//	Y=3  column-header row  ← subviewHeaderY
+//	Y=4  first data row
+const subviewHeaderY = 3
 
 // clickedSubviewRow maps a terminal Y coordinate to a row index in the
 // subview tables (hosts, networks, pools, snapshots, volumes). Their

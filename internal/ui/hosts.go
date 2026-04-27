@@ -220,11 +220,13 @@ func (m Model) hostsView() string {
 		headerLabel.Render("   ") +
 		headerLabel.Render("config: ") + headerValue.Render(config.HostsPath())
 
+	active := m.hostsSortIdx
+	desc := m.hostsSortDesc
 	header := listHeaderRow.Render(" " + strings.Join([]string{
-		padRight("NAME", hostsNameW),
-		padRight("URI", hostsURIW),
-		padRight("STATUS", hostsStatusW),
-		padLeft("DOMAINS", hostsDomainsW),
+		padRight(arrowedHeader("NAME", active == hostColName, desc), hostsNameW),
+		padRight(arrowedHeader("URI", active == hostColURI, desc), hostsURIW),
+		padRight(arrowedHeader("STATUS", active == hostColStatus, desc), hostsStatusW),
+		padLeft(arrowedHeader("DOMAINS", active == hostColDomains, desc), hostsDomainsW),
 	}, "  "))
 
 	rows := []string{header}
@@ -233,7 +235,8 @@ func (m Model) hostsView() string {
 	} else if len(m.hosts) == 0 {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no hosts — press a to add one, or e to edit the hosts file"))
 	} else {
-		for i, h := range m.hosts {
+		sorted := m.sortedHosts()
+		for i, h := range sorted {
 			rows = append(rows, renderHostRow(h, m.hostsProbe[h.Name], m.client.URI(), i == m.hostsSel))
 		}
 	}

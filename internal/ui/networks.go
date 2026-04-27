@@ -25,15 +25,17 @@ func (m Model) networksView() string {
 
 	title := headerTitle.Render("networks")
 
+	active := m.networksSortIdx
+	desc := m.networksSortDesc
 	header := listHeaderRow.Render(" " + strings.Join([]string{
-		padRight("NAME", netNameW),
-		padRight("STATE", netStateW),
-		padRight("AUTOSTART", netAutoW),
-		padRight("BRIDGE", netBridgeW),
-		padRight("FORWARD", netForwardW),
-		padLeft("LEASES", netLeasesW),
-		padLeft("↓ RX", netRateW),
-		padLeft("↑ TX", netRateW),
+		padRight(arrowedHeader("NAME", active == netColName, desc), netNameW),
+		padRight(arrowedHeader("STATE", active == netColState, desc), netStateW),
+		padRight(arrowedHeader("AUTOSTART", active == netColAuto, desc), netAutoW),
+		padRight(arrowedHeader("BRIDGE", active == netColBridge, desc), netBridgeW),
+		padRight(arrowedHeader("FORWARD", active == netColForward, desc), netForwardW),
+		padLeft(arrowedHeader("LEASES", active == netColLeases, desc), netLeasesW),
+		padLeft(arrowedHeader("↓ RX", active == netColRX, desc), netRateW),
+		padLeft(arrowedHeader("↑ TX", active == netColTX, desc), netRateW),
 	}, "  "))
 
 	rows := []string{header}
@@ -42,7 +44,8 @@ func (m Model) networksView() string {
 	} else if len(m.networks) == 0 {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no networks"))
 	} else {
-		for i, n := range m.networks {
+		sorted := m.sortedNetworks()
+		for i, n := range sorted {
 			rows = append(rows, renderNetworkRow(n, m.bridgeRates[n.Bridge], i == m.networksSel))
 		}
 	}

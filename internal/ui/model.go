@@ -157,10 +157,12 @@ type Model struct {
 	snapshotName  string              // text being typed for the new name
 
 	// Networks view state.
-	networks      []lv.Network
-	bridgeRates   map[string]bridgeRate // keyed by bridge name
-	networksSel int
-	networksErr error
+	networks         []lv.Network
+	bridgeRates      map[string]bridgeRate // keyed by bridge name
+	networksSel      int
+	networksErr      error
+	networksSortIdx  int  // index into the networks header columns
+	networksSortDesc bool
 
 	// DHCP leases view state (drill-down from networks).
 	leases    []lv.DHCPLease
@@ -168,9 +170,11 @@ type Model struct {
 	leasesErr error
 
 	// Storage pools view state.
-	pools    []lv.StoragePool
-	poolsSel int
-	poolsErr error
+	pools         []lv.StoragePool
+	poolsSel      int
+	poolsErr      error
+	poolsSortIdx  int
+	poolsSortDesc bool
 
 	// Storage volumes view state (drill-down from pools).
 	volumes    []lv.StorageVolume
@@ -179,10 +183,12 @@ type Model struct {
 	volumesErr error
 
 	// Hosts view state — the multi-host list and async probe results.
-	hosts      []config.Host
-	hostsSel   int
-	hostsErr   error
-	hostsProbe map[string]hostProbeStatus
+	hosts         []config.Host
+	hostsSel      int
+	hostsErr      error
+	hostsProbe    map[string]hostProbeStatus
+	hostsSortIdx  int
+	hostsSortDesc bool
 
 	// Hosts view: two-step text input for the "a" (add host) flow.
 	// Stage 0 = idle, 1 = typing the nickname, 2 = typing the URI.

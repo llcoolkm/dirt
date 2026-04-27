@@ -31,14 +31,16 @@ func (m Model) poolsView() string {
 
 	title := headerTitle.Render("storage pools")
 
+	active := m.poolsSortIdx
+	desc := m.poolsSortDesc
 	header := listHeaderRow.Render(" " + strings.Join([]string{
-		padRight("NAME", poolNameW),
-		padRight("STATE", poolStateW),
-		padRight("TYPE", poolTypeW),
-		padLeft("CAPACITY", poolCapW),
-		padLeft("USED", poolAllocW),
-		padLeft("FREE", poolFreeW),
-		padRight("USAGE", poolUsageW),
+		padRight(arrowedHeader("NAME", active == poolColName, desc), poolNameW),
+		padRight(arrowedHeader("STATE", active == poolColState, desc), poolStateW),
+		padRight(arrowedHeader("TYPE", active == poolColType, desc), poolTypeW),
+		padLeft(arrowedHeader("CAPACITY", active == poolColCap, desc), poolCapW),
+		padLeft(arrowedHeader("USED", active == poolColAlloc, desc), poolAllocW),
+		padLeft(arrowedHeader("FREE", active == poolColFree, desc), poolFreeW),
+		padRight(arrowedHeader("USAGE", active == poolColUsage, desc), poolUsageW),
 	}, "  "))
 
 	rows := []string{header}
@@ -47,7 +49,8 @@ func (m Model) poolsView() string {
 	} else if len(m.pools) == 0 {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no storage pools"))
 	} else {
-		for i, p := range m.pools {
+		sorted := m.sortedPools()
+		for i, p := range sorted {
 			rows = append(rows, renderPoolRow(p, i == m.poolsSel))
 		}
 	}
