@@ -2814,6 +2814,14 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 		m.mode = viewColumns
 		m.columnsSel = 0
 		return m, nil
+	case "columns reset":
+		// Restore default column visibility without touching the
+		// config file. Master can :save afterwards if they want it
+		// to stick.
+		def := config.DefaultConfig().List.Columns
+		m.activeColumns = filterActiveColumns(vmColumns, def)
+		m.flashf("✓ columns reset to defaults")
+		return m, nil
 	case "config":
 		// Open the config file in $EDITOR, suspending dirt for the
 		// duration. On exit the file is re-read and runtime state

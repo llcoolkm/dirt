@@ -298,7 +298,9 @@ var paletteCommands = []paletteCommand{
 	{"host", "hosts", nil},
 	{"perf", "graphs", nil},
 	{"jobs", "background jobs", nil},
-	{"columns", "show / hide table columns", nil},
+	{"columns", "show / hide table columns", []paletteArg{
+		{name: "reset", desc: "restore defaults"},
+	}},
 	{"config", "edit config in $EDITOR", nil},
 	{"save", "persist runtime preferences to config.yaml (alias :w)", nil},
 	{"wq", "save and quit", nil},
