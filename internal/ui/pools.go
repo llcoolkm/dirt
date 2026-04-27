@@ -81,7 +81,9 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 	}
 
 	// Selected rows must carry no inner ANSI — any `\x1b[m` reset
-	// inside a cell terminates the rowSelected wrap mid-row.
+	// inside a cell terminates the rowSelected wrap mid-row. Build
+	// a plain bar (no colour) at the same visible width as the
+	// non-selected branch so column alignment doesn't drift.
 	if selected {
 		pctStr := fmt.Sprintf(" %3.0f%%", usagePct)
 		row := strings.Join([]string{
@@ -91,7 +93,7 @@ func renderPoolRow(p lv.StoragePool, selected bool) string {
 			padLeft(cap, poolCapW),
 			padLeft(alloc, poolAllocW),
 			padLeft(free, poolFreeW),
-			padRight(strings.Repeat("|", int(usagePct/100*float64(poolUsageW-7)))+pctStr, poolUsageW),
+			bar(usagePct, poolUsageW-7) + pctStr,
 		}, "  ")
 		return rowSelected.Render(" " + row)
 	}
