@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/llcoolkm/dirt/internal/backend"
 	"github.com/llcoolkm/dirt/internal/config"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
@@ -55,7 +56,7 @@ const guestUptimeTTL = 10 * time.Second
 
 // Model is the root Bubble Tea model.
 type Model struct {
-	client *lv.Client
+	client backend.Backend
 
 	// refreshInterval controls the snapshot tick rate. Set via WithRefreshInterval.
 	refreshInterval time.Duration
@@ -311,7 +312,7 @@ func (s sortColumn) String() string {
 }
 
 // New constructs a fresh Model bound to the given libvirt client.
-func New(c *lv.Client) Model {
+func New(c backend.Backend) Model {
 	return Model{
 		client:          c,
 		refreshInterval: defaultRefreshInterval,
@@ -459,7 +460,7 @@ func tickCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func loadCmd(c *lv.Client) tea.Cmd {
+func loadCmd(c backend.Backend) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		snap, err := c.Snapshot()
@@ -467,7 +468,7 @@ func loadCmd(c *lv.Client) tea.Cmd {
 	}
 }
 
-func actionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd {
+func actionCmd(c backend.Backend, action, name string, fn func(string) error) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		return actionResultMsg{uri: uri, action: action, name: name, err: fn(name)}
@@ -477,7 +478,7 @@ func actionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd
 // bulkActionCmd runs fn serially against each name. Libvirt serialises
 // state transitions on its own, and serial execution keeps the flash
 // message and error list deterministic. Returns a single summary msg.
-func bulkActionCmd(c *lv.Client, action string, names []string, fn func(string) error) tea.Cmd {
+func bulkActionCmd(c backend.Backend, action string, names []string, fn func(string) error) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		var failed []string
@@ -490,7 +491,7 @@ func bulkActionCmd(c *lv.Client, action string, names []string, fn func(string) 
 	}
 }
 
-func loadDetailCmd(c *lv.Client, name string) tea.Cmd {
+func loadDetailCmd(c backend.Backend, name string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		x, err := c.XMLDesc(name)
@@ -498,7 +499,7 @@ func loadDetailCmd(c *lv.Client, name string) tea.Cmd {
 	}
 }
 
-func loadHostCmd(c *lv.Client) tea.Cmd {
+func loadHostCmd(c backend.Backend) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		h, err := c.Host()
@@ -506,7 +507,7 @@ func loadHostCmd(c *lv.Client) tea.Cmd {
 	}
 }
 
-func loadHostStatsCmd(c *lv.Client) tea.Cmd {
+func loadHostStatsCmd(c backend.Backend) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		s, err := c.HostStats()
@@ -514,7 +515,7 @@ func loadHostStatsCmd(c *lv.Client) tea.Cmd {
 	}
 }
 
-func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
+func loadSnapshotsCmd(c backend.Backend, domain string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListSnapshots(domain)
@@ -522,7 +523,7 @@ func loadSnapshotsCmd(c *lv.Client, domain string) tea.Cmd {
 	}
 }
 
-func loadNetworksCmd(c *lv.Client) tea.Cmd {
+func loadNetworksCmd(c backend.Backend) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListNetworks()
@@ -539,7 +540,7 @@ func loadBridgeStatsCmd(uri string, names []string) tea.Cmd {
 	}
 }
 
-func loadLeasesCmd(c *lv.Client, netName string) tea.Cmd {
+func loadLeasesCmd(c backend.Backend, netName string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListDHCPLeases(netName)
@@ -547,7 +548,7 @@ func loadLeasesCmd(c *lv.Client, netName string) tea.Cmd {
 	}
 }
 
-func loadPoolsCmd(c *lv.Client) tea.Cmd {
+func loadPoolsCmd(c backend.Backend) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListStoragePools()
@@ -555,7 +556,7 @@ func loadPoolsCmd(c *lv.Client) tea.Cmd {
 	}
 }
 
-func loadVolumesCmd(c *lv.Client, pool string) tea.Cmd {
+func loadVolumesCmd(c backend.Backend, pool string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		list, err := c.ListVolumes(pool)
@@ -563,14 +564,14 @@ func loadVolumesCmd(c *lv.Client, pool string) tea.Cmd {
 	}
 }
 
-func swapCmd(c *lv.Client, name string) tea.Cmd {
+func swapCmd(c backend.Backend, name string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		return swapMsg{uri: uri, name: name, info: c.Swap(name)}
 	}
 }
 
-func guestUptimeCmd(c *lv.Client, name string) tea.Cmd {
+func guestUptimeCmd(c backend.Backend, name string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		return guestUptimeMsg{uri: uri, name: name, info: c.QueryGuestUptime(name)}
@@ -3329,7 +3330,7 @@ func (m Model) currentVolume() (lv.StorageVolume, bool) {
 }
 
 // networkActionCmd is a generic action runner used by network and pool keys.
-func networkActionCmd(c *lv.Client, action, name string, fn func(string) error) tea.Cmd {
+func networkActionCmd(c backend.Backend, action, name string, fn func(string) error) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		return actionResultMsg{uri: uri, action: action, name: name, err: fn(name)}

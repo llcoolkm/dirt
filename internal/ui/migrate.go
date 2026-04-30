@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/llcoolkm/dirt/internal/backend"
 	"github.com/llcoolkm/dirt/internal/config"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
@@ -143,7 +144,7 @@ func (m Model) handleMigrateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 //   - pollMigrationProgress (1Hz GetJobStats loop)
 //
 // Both goroutines communicate back to the UI via messages.
-func startMigrationCmd(c *lv.Client, source string, dest config.Host) tea.Cmd {
+func startMigrationCmd(c backend.Backend, source string, dest config.Host) tea.Cmd {
 	return func() tea.Msg {
 		jobID := fmt.Sprintf("migrate-%s-%d", source, time.Now().UnixNano())
 		job := &Job{
@@ -212,7 +213,7 @@ func startMigrationCmd(c *lv.Client, source string, dest config.Host) tea.Cmd {
 // to copy. Conservative — false positives cost a slower migration, false
 // negatives fail outright. Users can override via explicit flags in a
 // future version.
-func detectCopyStorage(source *lv.Client, dest config.Host) bool {
+func detectCopyStorage(source backend.Backend, dest config.Host) bool {
 	// Local-to-local (same URI) never needs copy.
 	if source.URI() == dest.URI {
 		return false

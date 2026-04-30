@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/llcoolkm/dirt/internal/backend"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
 
@@ -20,7 +21,7 @@ type infoLoadedMsg struct {
 // loadInfoCmd fetches and parses the domain XML for one VM off the
 // UI thread. Mirrors loadDetailCmd but returns the structured info
 // instead of the raw XML body.
-func loadInfoCmd(c *lv.Client, name string) tea.Cmd {
+func loadInfoCmd(c backend.Backend, name string) tea.Cmd {
 	uri := c.URI()
 	return func() tea.Msg {
 		info, err := c.DomainInfo(name)

@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/llcoolkm/dirt/internal/lv"
+	"github.com/llcoolkm/dirt/internal/backend"
 )
 
 // teaProgram holds a reference to the tea.Program so background
@@ -298,7 +298,7 @@ func runDomainJob(job *Job, work func() error, pollFn func() (running bool, prog
 // runDomainJob that asks libvirt for the running job's progress on
 // the named domain. Libvirt reports progress for memory snapshots
 // (save) and for block-commit operations during snapshot delete.
-func snapshotProgressPoller(c *lv.Client, domain string) func() (bool, float64, string) {
+func snapshotProgressPoller(c backend.Backend, domain string) func() (bool, float64, string) {
 	return func() (bool, float64, string) {
 		running, info, err := c.MigrationProgress(domain)
 		if err != nil || !running {

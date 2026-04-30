@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/llcoolkm/dirt/internal/backend"
 	"github.com/llcoolkm/dirt/internal/config"
 	"github.com/llcoolkm/dirt/internal/lv"
 )
@@ -57,7 +58,7 @@ type hostProbedMsg struct {
 // connectedMsg signals that an async host switch succeeded. The caller
 // must replace m.client with the new one and close the previous.
 type connectedMsg struct {
-	client *lv.Client
+	client backend.Backend
 	nick   string
 	uri    string
 }
