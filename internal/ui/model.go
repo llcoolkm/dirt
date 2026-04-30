@@ -178,10 +178,12 @@ type Model struct {
 	poolsSortDesc bool
 
 	// Storage volumes view state (drill-down from pools).
-	volumes    []lv.StorageVolume
-	volumesFor string // pool name
-	volumesSel int
-	volumesErr error
+	volumes         []lv.StorageVolume
+	volumesFor      string // pool name
+	volumesSel      int
+	volumesErr      error
+	volumesSortIdx  int
+	volumesSortDesc bool
 
 	// Hosts view state — the multi-host list and async probe results.
 	hosts         []config.Host
@@ -3328,10 +3330,11 @@ func (m Model) currentPool() (lv.StoragePool, bool) {
 }
 
 func (m Model) currentVolume() (lv.StorageVolume, bool) {
-	if m.volumesSel < 0 || m.volumesSel >= len(m.volumes) {
+	sorted := m.sortedVolumes()
+	if m.volumesSel < 0 || m.volumesSel >= len(sorted) {
 		return lv.StorageVolume{}, false
 	}
-	return m.volumes[m.volumesSel], true
+	return sorted[m.volumesSel], true
 }
 
 // networkActionCmd is a generic action runner used by network and pool keys.

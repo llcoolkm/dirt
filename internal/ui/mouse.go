@@ -58,6 +58,9 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.poolsSel = idx
 		}
 	case viewVolumes:
+		if msg.Y == subviewHeaderY {
+			return m.volHeaderClick(msg.X), nil
+		}
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.volumes)); ok {
 			m.volumesSel = idx
 		}

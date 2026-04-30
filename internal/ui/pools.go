@@ -155,12 +155,14 @@ func (m Model) volumesView() string {
 
 	title := headerTitle.Render("volumes: ") + headerValue.Render(m.volumesFor)
 
+	active := m.volumesSortIdx
+	desc := m.volumesSortDesc
 	header := listHeaderRow.Render(" " + strings.Join([]string{
-		padRight("NAME", volNameW),
-		padRight("TYPE", volTypeW),
-		padLeft("CAPACITY", volCapW),
-		padLeft("ALLOCATED", volAllocW),
-		padRight("PATH", volPathW),
+		padRight(arrowedHeader("NAME", active == volColName, desc), volNameW),
+		padRight(arrowedHeader("TYPE", active == volColType, desc), volTypeW),
+		padLeft(arrowedHeader("CAPACITY", active == volColCap, desc), volCapW),
+		padLeft(arrowedHeader("ALLOCATED", active == volColAlloc, desc), volAllocW),
+		padRight(arrowedHeader("PATH", active == volColPath, desc), volPathW),
 	}, "  "))
 
 	rows := []string{header}
@@ -169,7 +171,8 @@ func (m Model) volumesView() string {
 	} else if len(m.volumes) == 0 {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no volumes in this pool"))
 	} else {
-		for i, v := range m.volumes {
+		sorted := m.sortedVolumes()
+		for i, v := range sorted {
 			rows = append(rows, renderVolumeRow(v, i == m.volumesSel))
 		}
 	}

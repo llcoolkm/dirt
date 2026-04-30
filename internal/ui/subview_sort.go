@@ -196,6 +196,69 @@ func (m Model) poolHeaderClick(x int) Model {
 	return m
 }
 
+// ──────────────────────────── Volumes ──────────────────────────────
+
+const (
+	volColName int = iota
+	volColType
+	volColCap
+	volColAlloc
+	volColPath
+	volColMax
+)
+
+func (m Model) sortedVolumes() []lv.StorageVolume {
+	out := append([]lv.StorageVolume(nil), m.volumes...)
+	flip := func(b bool) bool {
+		if m.volumesSortDesc {
+			return !b
+		}
+		return b
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		switch m.volumesSortIdx {
+		case volColType:
+			if a.Type != b.Type {
+				return flip(a.Type < b.Type)
+			}
+			return a.Name < b.Name
+		case volColCap:
+			if a.Capacity != b.Capacity {
+				return flip(a.Capacity > b.Capacity)
+			}
+			return a.Name < b.Name
+		case volColAlloc:
+			if a.Allocation != b.Allocation {
+				return flip(a.Allocation > b.Allocation)
+			}
+			return a.Name < b.Name
+		case volColPath:
+			if a.Path != b.Path {
+				return flip(a.Path < b.Path)
+			}
+			return a.Name < b.Name
+		}
+		return flip(a.Name < b.Name)
+	})
+	return out
+}
+
+func (m Model) volHeaderClick(x int) Model {
+	widths := []int{volNameW, volTypeW, volCapW, volAllocW, volPathW}
+	idx, ok := clickedHeaderColIdx(x, widths)
+	if !ok {
+		return m
+	}
+	if m.volumesSortIdx == idx {
+		m.volumesSortDesc = !m.volumesSortDesc
+	} else {
+		m.volumesSortIdx = idx
+		m.volumesSortDesc = false
+	}
+	return m
+}
+
 // ──────────────────────────── Hosts ──────────────────────────────
 
 const (
