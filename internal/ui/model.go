@@ -2370,28 +2370,26 @@ func (m Model) execThemeCommand(name string) Model {
 	return m
 }
 
-// execSaveCommand serialises the master's current runtime
-// preferences back to config.yaml at ConfigPath(). Theme, sort,
-// column visibility, and mark-advance behaviour all survive; the
-// list of hosts and the libvirt URI are config concerns and stay
-// untouched by this path.
+// execSaveCommand serialises the master's current runtime preferences
+// to ~/.local/state/dirt/state.yaml (XDG_STATE_HOME convention) so
+// config.yaml — which the master may hand-edit — is left untouched
+// by routine TUI churn. Theme, sort, column visibility, and
+// mark-advance behaviour all round-trip through this file.
 func (m Model) execSaveCommand() (Model, tea.Cmd) {
 	visibility := m.currentColumnVisibility()
-	cfg := config.Config{
-		Refresh: m.refreshInterval,
-		Theme:   currentTheme,
-		List: config.ListConfig{
-			SortBy:      sortColumnID(m.sortColumn),
-			SortReverse: m.sortDesc,
-			MarkAdvance: m.markAdvance,
-			Columns:     visibility,
-		},
+	rev := m.sortDesc
+	state := config.State{
+		Theme:       currentTheme,
+		SortBy:      sortColumnID(m.sortColumn),
+		SortReverse: &rev,
+		MarkAdvance: m.markAdvance,
+		Columns:     visibility,
 	}
-	if err := config.SaveConfig(cfg); err != nil {
+	if err := config.SaveState(state); err != nil {
 		m.flashf("✗ save: %v", err)
 		return m, nil
 	}
-	m.flashf("✓ saved → %s", config.ConfigPath())
+	m.flashf("✓ saved → %s", config.StatePath())
 	return m, nil
 }
 

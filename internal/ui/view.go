@@ -305,7 +305,7 @@ var paletteCommands = []paletteCommand{
 		{name: "reset", desc: "restore defaults"},
 	}},
 	{"config", "edit config in $EDITOR", nil},
-	{"save", "persist runtime preferences to config.yaml (alias :w)", nil},
+	{"save", "persist runtime preferences to state.yaml (alias :w)", nil},
 	{"wq", "save and quit", nil},
 	{"export", "export VM list to file", []paletteArg{
 		{name: "csv"},

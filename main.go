@@ -59,6 +59,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dirt: warning — could not read %s: %v\n", config.ConfigPath(), err)
 	}
 
+	// Overlay runtime state (sort, theme, columns, mark_advance)
+	// previously persisted by :save. This keeps config.yaml under the
+	// master's hand-editing while live preferences round-trip through
+	// state.yaml.
+	if state, err := config.LoadState(); err != nil {
+		fmt.Fprintf(os.Stderr, "dirt: warning — could not read %s: %v\n", config.StatePath(), err)
+	} else {
+		state.MergeInto(&cfg)
+	}
+
 	// CLI --refresh overrides the config file. The zero default lets
 	// us distinguish "flag unset" from an intentional 0 (which would
 	// be clamped to the 200ms floor anyway).
