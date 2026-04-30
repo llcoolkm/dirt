@@ -3308,18 +3308,23 @@ func parseHumanSize(s string) (uint64, error) {
 	return uint64(num * float64(mult)), nil
 }
 
+// currentNetwork returns the network at the visual cursor position,
+// honouring the active sort. The cursor index is into the sorted
+// view, not the raw m.networks slice.
 func (m Model) currentNetwork() (lv.Network, bool) {
-	if m.networksSel < 0 || m.networksSel >= len(m.networks) {
+	sorted := m.sortedNetworks()
+	if m.networksSel < 0 || m.networksSel >= len(sorted) {
 		return lv.Network{}, false
 	}
-	return m.networks[m.networksSel], true
+	return sorted[m.networksSel], true
 }
 
 func (m Model) currentPool() (lv.StoragePool, bool) {
-	if m.poolsSel < 0 || m.poolsSel >= len(m.pools) {
+	sorted := m.sortedPools()
+	if m.poolsSel < 0 || m.poolsSel >= len(sorted) {
 		return lv.StoragePool{}, false
 	}
-	return m.pools[m.poolsSel], true
+	return sorted[m.poolsSel], true
 }
 
 func (m Model) currentVolume() (lv.StorageVolume, bool) {

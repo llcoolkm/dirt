@@ -492,12 +492,14 @@ func (m Model) handleHostsConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// currentHostEntry returns the host at the current selection, if any.
+// currentHostEntry returns the host at the visual cursor position,
+// honouring the active sort. The cursor index is into the sorted view.
 func (m Model) currentHostEntry() (config.Host, bool) {
-	if m.hostsSel < 0 || m.hostsSel >= len(m.hosts) {
+	sorted := m.sortedHosts()
+	if m.hostsSel < 0 || m.hostsSel >= len(sorted) {
 		return config.Host{}, false
 	}
-	return m.hosts[m.hostsSel], true
+	return sorted[m.hostsSel], true
 }
 
 // connectToHost starts an async connect to uri. If the current client
