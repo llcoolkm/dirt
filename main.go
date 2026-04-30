@@ -90,8 +90,13 @@ func main() {
 	// migration progress, snapshot jobs, etc.) can push messages back
 	// into the loop.
 	ui.SetProgram(p)
-	if _, err := p.Run(); err != nil {
+	final, err := p.Run()
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "dirt: %v\n", err)
 		os.Exit(1)
+	}
+	// Close any backends opened by the multi-host aggregated view.
+	if fm, ok := final.(ui.Model); ok {
+		fm.CloseAllBackends()
 	}
 }

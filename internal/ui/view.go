@@ -48,6 +48,8 @@ func (m Model) View() string {
 		return m.hostsView()
 	case viewColumns:
 		return m.columnsView()
+	case viewAll:
+		return m.allView()
 	}
 
 	parts := []string{
@@ -292,6 +294,7 @@ func buildThemeArgs() []paletteArg {
 // aliases (vms, snapshot, quit, …) are handled by execCommand itself.
 var paletteCommands = []paletteCommand{
 	{"vm", "VM list", nil},
+	{"all", "aggregated VM list across all hosts", nil},
 	{"snap", "snapshots", nil},
 	{"net", "networks", nil},
 	{"pool", "pools", nil},

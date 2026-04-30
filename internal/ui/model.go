@@ -44,6 +44,7 @@ const (
 	viewJobs                      // active + recent background jobs
 	viewMigrate                   // destination picker for live migration
 	viewColumns                   // picker for which VM-list columns are shown
+	viewAll                       // aggregated multi-host VM list (`:all`)
 )
 
 // swapTTL is how long a fetched SwapInfo is considered fresh enough to skip
@@ -193,6 +194,14 @@ type Model struct {
 	hostsSortIdx  int
 	hostsSortDesc bool
 
+	// Multi-host aggregated view (`:all`). Backends opened lazily on
+	// first entry and reused thereafter. Snapshots refresh on every
+	// tick while viewAll is active. Read-only in this iteration.
+	allBackends   map[string]backend.Backend
+	allSnapshots  map[string]*lv.Snapshot
+	allErrs       map[string]error
+	allSel        int
+
 	// Hosts view: two-step text input for the "a" (add host) flow.
 	// Stage 0 = idle, 1 = typing the nickname, 2 = typing the URI.
 	hostInputStage int
@@ -326,6 +335,9 @@ func New(c backend.Backend) Model {
 		marks:           make(map[string]bool),
 		sortColumn:      sortByState, // running first by default
 		activeColumns:   vmColumns,
+		allBackends:     make(map[string]backend.Backend),
+		allSnapshots:    make(map[string]*lv.Snapshot),
+		allErrs:         make(map[string]error),
 	}
 }
 
@@ -615,11 +627,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.ClearScreen
 
 	case tickMsg:
-		return m, tea.Batch(
+		cmds := []tea.Cmd{
 			loadCmd(m.client),
 			loadHostStatsCmd(m.client),
 			tickCmd(m.refreshInterval),
-		)
+		}
+		// While in the aggregated view, fan out a snapshot to every
+		// open backend so the list stays live.
+		if m.mode == viewAll && len(m.allBackends) > 0 {
+			cmds = append(cmds, allRefreshCmd(m.allBackends))
+		}
+		return m, tea.Batch(cmds...)
+
+	case allBackendOpenedMsg:
+		if msg.err != nil {
+			m.allErrs[msg.nick] = msg.err
+			return m, nil
+		}
+		// Drop any prior error for this nick on success.
+		delete(m.allErrs, msg.nick)
+		m.allBackends[msg.nick] = msg.client
+		// Trigger an immediate snapshot for the freshly-opened host so
+		// the user sees rows arrive without waiting a full tick.
+		c := msg.client
+		nick := msg.nick
+		return m, func() tea.Msg {
+			snap, err := c.Snapshot()
+			return allSnapshotMsg{nick: nick, uri: c.URI(), snap: snap, err: err}
+		}
+
+	case allSnapshotMsg:
+		if msg.err != nil {
+			m.allErrs[msg.nick] = msg.err
+			// Keep any prior snapshot so the row doesn't blank out
+			// on a single transient error.
+			return m, nil
+		}
+		delete(m.allErrs, msg.nick)
+		m.allSnapshots[msg.nick] = msg.snap
+		// Clamp the cursor in case rows shrank.
+		rows := len(m.allRows())
+		if m.allSel >= rows {
+			m.allSel = rows - 1
+		}
+		if m.allSel < 0 {
+			m.allSel = 0
+		}
+		return m, nil
 
 	case snapshotMsg:
 		if m.stale(msg.uri) {
@@ -1022,6 +1076,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleHostsKey(msg)
 	case viewColumns:
 		return m.handleColumnsKey(msg)
+	case viewAll:
+		return m.handleAllKey(msg)
 	}
 	switch {
 	case m.confirmTyping:
@@ -2783,6 +2839,8 @@ func (m Model) execCommand(cmd string) (Model, tea.Cmd) {
 	case "vm":
 		m.mode = viewMain
 		return m, nil
+	case "all", "fleet":
+		return m.enterAllView()
 	case "snap":
 		d, ok := m.currentDomain()
 		if !ok {

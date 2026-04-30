@@ -107,6 +107,7 @@ func (m Model) helpView() string {
 				{":net", "libvirt networks"},
 				{":pool", "storage pools"},
 				{":host", "list libvirt endpoints"},
+				{":all", "aggregated VM list across all hosts"},
 				{":perf", "performance graphs"},
 				{":jobs", "background jobs (migrations, slow snapshots)"},
 				{":vm", "back to VM list"},
