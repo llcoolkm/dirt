@@ -51,6 +51,16 @@ type allSnapshotMsg struct {
 	err  error
 }
 
+// allActionResultMsg is an action (start, shutdown, reboot, suspend,
+// resume) completing on a domain inside the aggregated view. The nick
+// lets us refresh just the affected host instead of every backend.
+type allActionResultMsg struct {
+	nick   string
+	action string
+	name   string
+	err    error
+}
+
 // ────────────────────────── Commands ──────────────────────────
 
 // allOpenBackendsCmd fans out connection attempts for every host in
@@ -73,6 +83,31 @@ func allOpenBackendsCmd(hosts []config.Host, have map[string]backend.Backend) te
 		return nil
 	}
 	return tea.Batch(cmds...)
+}
+
+// allRefreshOneCmd fires a Snapshot() against the named backend so a
+// single host can be re-sampled after an action without disturbing
+// the others.
+func allRefreshOneCmd(nick string, c backend.Backend) tea.Cmd {
+	if c == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		snap, err := c.Snapshot()
+		return allSnapshotMsg{nick: nick, uri: c.URI(), snap: snap, err: err}
+	}
+}
+
+// allActionCmd dispatches an action against the named domain on the
+// given backend. Returns an allActionResultMsg tagged with the host
+// nick so the post-action refresh can target the right host.
+func allActionCmd(nick, action, name string, c backend.Backend, fn func(string) error) tea.Cmd {
+	if c == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return allActionResultMsg{nick: nick, action: action, name: name, err: fn(name)}
+	}
 }
 
 // allRefreshCmd fans out a Snapshot() against every open backend in
@@ -262,9 +297,12 @@ func allStatusBar(m Model, width int) string {
 	}
 	return statusBar.Width(width).Render(" " +
 		key("j/k") + " nav  " +
+		key("s") + " start  " +
+		key("S") + " stop  " +
+		key("r") + " reboot  " +
+		key("p") + " pause/resume  " +
 		key("/") + " filter  " +
 		key("R") + " refresh  " +
-		key(":") + " palette  " +
 		key("esc") + " back")
 }
 
@@ -349,12 +387,53 @@ func (m Model) handleAllKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			allRefreshCmd(m.allBackends),
 		}
 		return m, tea.Batch(cmds...)
+	case "s":
+		if r, c, ok := m.currentAllTarget(); ok && r.dom.State != lv.StateRunning {
+			return m, allActionCmd(r.host, "start", r.dom.Name, c, c.Start)
+		}
+		return m, nil
+	case "S":
+		if r, c, ok := m.currentAllTarget(); ok && r.dom.State == lv.StateRunning {
+			return m, allActionCmd(r.host, "shutdown", r.dom.Name, c, c.Shutdown)
+		}
+		return m, nil
+	case "r":
+		if r, c, ok := m.currentAllTarget(); ok && r.dom.State == lv.StateRunning {
+			return m, allActionCmd(r.host, "reboot", r.dom.Name, c, c.Reboot)
+		}
+		return m, nil
+	case "p":
+		if r, c, ok := m.currentAllTarget(); ok {
+			switch r.dom.State {
+			case lv.StateRunning:
+				return m, allActionCmd(r.host, "pause", r.dom.Name, c, c.Suspend)
+			case lv.StatePaused:
+				return m, allActionCmd(r.host, "resume", r.dom.Name, c, c.Resume)
+			}
+		}
+		return m, nil
 	}
 	rows := m.allRows()
 	if navSelect(msg.String(), &m.allSel, len(rows)) {
 		return m, nil
 	}
 	return m, nil
+}
+
+// currentAllTarget returns the row at the cursor and its backend, or
+// (_, _, false) when the cursor is out of range or the host's backend
+// has not yet opened (e.g. the connection failed).
+func (m Model) currentAllTarget() (allRow, backend.Backend, bool) {
+	rows := m.allRows()
+	if m.allSel < 0 || m.allSel >= len(rows) {
+		return allRow{}, nil, false
+	}
+	r := rows[m.allSel]
+	c, ok := m.allBackends[r.host]
+	if !ok || c == nil {
+		return r, nil, false
+	}
+	return r, c, true
 }
 
 func shortErr(err error) string {

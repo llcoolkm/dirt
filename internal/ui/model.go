@@ -675,6 +675,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case allActionResultMsg:
+		if msg.err != nil {
+			m.flashf("✗ %s %s@%s: %v", msg.action, msg.name, msg.nick, msg.err)
+		} else if msg.action == "pause" {
+			m.flashf("✓ paused %s@%s — press p to resume", msg.name, msg.nick)
+		} else {
+			m.flashf("✓ %s %s@%s", msg.action, msg.name, msg.nick)
+		}
+		// Re-sample just the affected host so the row state catches up.
+		if c, ok := m.allBackends[msg.nick]; ok {
+			return m, allRefreshOneCmd(msg.nick, c)
+		}
+		return m, nil
+
 	case snapshotMsg:
 		if m.stale(msg.uri) {
 			return m, nil
