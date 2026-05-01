@@ -12,8 +12,9 @@ I worked almost exclusively in the console and have been missing a simple TUI to
 
 ## Features
 
-- **Live VM table** — name, state, IP, OS, vCPU, memory, MEM%, CPU%, uptime, IO-R, IO-W. Optional columns toggleable via `:columns`: coloured `cpu_bar`/`mem_bar`/`disk_bar` mini-bars, `net_rate` (`↓rx ↑tx`), `autostart`, `persistent`, `arch`, `tag`
-- **Sortable columns** — `:sort <col> [desc]` or click any column header to sort by it; click the active column to toggle direction
+- **Live VM table** — name, state, IP, OS, vCPU, memory, MEM%, CPU%, uptime, IO-R, IO-W. Optional columns toggleable via `:columns`: coloured `cpu_bar`/`mem_bar`/`disk_bar` mini-bars, split `net_rx`/`net_tx`, `autostart`, `persistent`, `arch`, `tag`
+- **Multi-host fleet view** — `:all` (alias `:fleet`) connects to every host in `hosts.yaml` and renders one unified VM list with a HOST column. Per-row lifecycle actions (start/shutdown/reboot/pause) dispatched to the correct backend; only the affected host is re-sampled afterwards. Per-host errors surface as a footer rather than blanking out reachable rows
+- **Sortable columns everywhere** — `:sort <col> [desc]` or click any column header. Every data-bearing column in `:vm` is sortable (incl. IO-R / IO-W / NET-RX / NET-TX / AUTO / PERS / ARCH / DISK / CPU / MEM bars). Subviews (`:net`, `:pool`, `:vol`, `:host`, `:all`) all carry the same convention
 - **Marks and bulk operations** — `space` to mark a row, `*` to invert, `:mark all/invert/none` for bulk; `s/S/D/R/p/U` then act on the marked set with a single confirmation. Mass undefine above 20 demands a typed phrase
 - **Vim numeric prefixes** — `5j`, `20G`, `5<space>` (mark next 5)
 - **Grouping & folding** — `:group os|state|arch|tag|none` clusters rows under aggregate headers; `z` folds/unfolds the group at the cursor
@@ -40,7 +41,7 @@ I worked almost exclusively in the console and have been missing a simple TUI to
 - **Full domain lifecycle** from single keypresses
 - **Live serial console** via `virsh console` (Tea suspends, virsh runs, Tea resumes on detach)
 - **Colour themes** — `default`, `light`, `solarized`, `solarized_light`, `gruvbox`, `shades` (greyscale), `mono` (pure two-tone, attribute-driven), `phosphor` (CRT green) — hot-swap via `:theme <name>`
-- **Persistent preferences** — `:save` (or `:w`) writes runtime theme, sort, column visibility, mark advance behaviour back to `config.yaml`. `:wq` saves and quits. `:config` opens it in `$EDITOR` and reloads on save
+- **Persistent preferences** — `:save` (or `:w`) writes runtime theme, sort, column visibility, mark-advance behaviour to `~/.local/state/dirt/state.yaml` (XDG state convention) so hand-edited `config.yaml` comments stay pristine. `:wq` saves and quits. `:config` opens `config.yaml` in `$EDITOR` and reloads on save
 - **Configurable mark advance** — `list.mark_advance: directional` (default, follows last cursor motion), `down` (always proceed downward), or `none` (pure toggle)
 - **Detail view** with full XML, scrollable, and **incremental `/` search** with match highlights and a position indicator
 - **Command palette** — `:` with prefix matching and tab completion
@@ -80,7 +81,7 @@ No git clone is required — `go install` pulls the source from the module proxy
 ### Pinning a specific version
 
 ```sh
-go install github.com/llcoolkm/dirt@v0.9.1   # exact tag
+go install github.com/llcoolkm/dirt@v0.10.0  # exact tag
 go install github.com/llcoolkm/dirt@main     # bleeding edge
 ```
 
@@ -167,7 +168,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `/` | filter VM list by substring |
 | `Esc` | clear filter (after marks and pending count) |
 | `:sort <col> [desc]` | sort by `name`, `state`, `ip`, `os`, `vcpu`, `mem`, `mem_pct`, `cpu`, `uptime`, `tag`; optional `desc` reverses |
-| *click column header* | sort by that column; click again to toggle direction. Works on the main, `:net`, `:pool`, and `:host` tables |
+| *click column header* | sort by that column; click again to toggle direction. Works on `:vm`, `:all`, `:net`, `:pool`, `:vol`, `:host` tables |
 
 ### Grouping & folding
 | Key | Action |
@@ -206,6 +207,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `:net` | libvirt networks |
 | `:pool` | storage pools (and drill-down into volumes) |
 | `:host` | list of known libvirt endpoints (switch hypervisors) |
+| `:all` (`:fleet`) | aggregated VM list across all hosts, with per-row actions |
 | `:perf` | performance graphs for selected VM |
 | `:jobs` | background jobs (migrations, snapshots, clone) |
 | `:resume` | bulk-resume marked paused VMs (or cursor row) |
@@ -213,7 +215,7 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `:export csv|json [path]` | dump filtered VM list to a file |
 | `:theme <name>` | hot-swap palette: `default`, `light`, `solarized`, `solarized_light`, `gruvbox`, `shades`, `mono`, `phosphor` |
 | `:config` | open config in `$EDITOR`, reload on save |
-| `:save` (`:w`, `:write`) | persist runtime preferences to `config.yaml` |
+| `:save` (`:w`, `:write`) | persist runtime preferences to `~/.local/state/dirt/state.yaml` |
 | `:wq` (`:x`) | save and quit |
 | `:vm` | back to VM list |
 | `:help` | open help screen |
@@ -312,11 +314,11 @@ VM list, or from inside the info view.
 
 ## Configuration
 
-dirt seeds two files under `~/.config/dirt/` on first launch:
+dirt uses two files under `~/.config/dirt/` (seeded on first launch) plus a runtime state file under `~/.local/state/dirt/` (created on first `:save`).
 
 ### `config.yaml`
 
-Persistent user-level preferences. All fields optional; missing ones fall back to dirt's built-in defaults.
+Hand-edited preferences — what you change with an editor. Comments and any extra fields you add stay untouched; `:save` does not write here. All fields optional; missing ones fall back to dirt's built-in defaults.
 
 ```yaml
 # Snapshot tick rate. Floor is 200ms.
@@ -351,6 +353,10 @@ list:
 ```
 
 CLI flags (e.g. `--refresh`) override the config file for the current session.
+
+### `state.yaml` (runtime, written by `:save`)
+
+Lives at `$XDG_STATE_HOME/dirt/state.yaml` (defaults to `~/.local/state/dirt/state.yaml`). Created the first time you run `:save`, `:w`, or `:wq`. Holds the live preferences dirt manages for you — sort, theme, columns, mark-advance — overlaid onto `config.yaml` at startup. Keeping the two files separate means routine TUI churn never destroys your hand-written config.yaml comments.
 
 ### `hosts`
 
@@ -403,7 +409,10 @@ dirt/
 ├── internal/
 │   ├── config/
 │   │   ├── config.go           config.yaml parser + seed
+│   │   ├── state.go            state.yaml runtime preferences
 │   │   └── hosts.go            hosts file read/write
+│   ├── backend/
+│   │   └── backend.go          Backend interface (lv.Client implements)
 │   ├── lv/
 │   │   ├── client.go           thin libvirt wrapper (stats, lifecycle, snapshots)
 │   │   ├── clone.go            virt-clone subprocess

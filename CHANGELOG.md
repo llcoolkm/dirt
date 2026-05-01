@@ -2,6 +2,36 @@
 
 All notable changes to dirt are documented here.
 
+## v0.10.0 — 2026-05-01
+
+**Multi-host fleet view, backend abstraction, every column sortable, runtime state separated from config.**
+
+### Multi-host aggregated view
+- **`:all`** (alias `:fleet`) — connects to every host in `hosts.yaml` in the background and renders a unified VM list with a HOST column. Refreshes on every regular tick by fanning a `Snapshot()` to each backend in parallel. Per-host errors surface as a footer beneath the list rather than blanking out previously-seen rows.
+- **Per-row actions** — `s` start, `S` shutdown, `r` reboot, `p` pause/resume — dispatched to the correct backend based on the row's host nick. Only the affected host is re-sampled afterwards, so healthy hosts aren't disturbed by a refresh storm.
+- **Header-click sort** + row-click selection + wheel navigation, matching the convention used by `:pool`, `:vol`, `:net`, `:host`. Sort columns: HOST, NAME, STATE, IP, OS, vCPU, MEM. ▲/▼ arrow on the active column.
+- **Filter (`/`)** spans HOST + NAME + IP + OS so a substring like `prod` instantly trims the fleet view.
+- **`R`** retries failed connections and refreshes open ones.
+- Backends opened by `:all` are released when dirt exits so SSH-backed sessions don't linger.
+
+### Backend abstraction
+- New `internal/backend.Backend` interface defines the contract dirt's UI uses to talk to a hypervisor. `*lv.Client` is the canonical implementation (compile-time asserted). UI commands and `Model` now depend on the interface, not the concrete client.
+- This is the foundation for the multi-host view above and any future non-libvirt backends (e.g. Proxmox VE's REST API).
+
+### Every column sortable
+- IO-R, IO-W, NET-RX, NET-TX, AUTO, PERS, ARCH, DISK bar, CPU bar, MEM bar — previously dead-ended on header click because their column entries had no sort enum. All data-bearing columns now own a dedicated sort key, and the visual bars share the sort of their numeric twin (`cpu_bar` ↔ CPU%, `mem_bar` ↔ MEM%, `disk_bar` ↔ DISK%).
+
+### Volumes header sort
+- `:vol` drill-down inherits sortable, click-to-toggle headers. NAME, TYPE, CAPACITY, ALLOCATED, PATH.
+
+### Runtime state separated from config
+- `:save` / `:w` / `:wq` now write to `~/.local/state/dirt/state.yaml` (XDG state convention). Hand-edited `config.yaml` comments and any extra fields the user added there are no longer destroyed by routine TUI churn.
+- `State.MergeInto` overlays the file onto the loaded config at startup. Pointer-typed `SortReverse` distinguishes "not set" from `false`. The `Columns` map merges key-by-key, so a sparse state file flips individual columns without nuking the rest.
+- Honours `$XDG_STATE_HOME`, falling back to `~/.local/state/dirt/`.
+
+### Bug fixes
+- **Subview sort no longer makes `s`/`Enter` act on the wrong row.** `currentNetwork`, `currentPool`, `currentHostEntry`, `currentVolume` previously dereferenced the unsorted slice while the cursor index was into the sorted view; after clicking a header, lifecycle keys would target a different row than the highlighted one. Each helper now sorts first and indexes into the sorted result.
+
 ## v0.9.1 — 2026-04-28
 
 **Polish release: bug fixes plus a few small features that grew out of v0.9.0 testing.**
