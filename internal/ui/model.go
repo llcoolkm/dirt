@@ -196,11 +196,13 @@ type Model struct {
 
 	// Multi-host aggregated view (`:all`). Backends opened lazily on
 	// first entry and reused thereafter. Snapshots refresh on every
-	// tick while viewAll is active. Read-only in this iteration.
-	allBackends   map[string]backend.Backend
-	allSnapshots  map[string]*lv.Snapshot
-	allErrs       map[string]error
-	allSel        int
+	// tick while viewAll is active.
+	allBackends  map[string]backend.Backend
+	allSnapshots map[string]*lv.Snapshot
+	allErrs      map[string]error
+	allSel       int
+	allSortIdx   int
+	allSortDesc  bool
 
 	// Hosts view: two-step text input for the "a" (add host) flow.
 	// Stage 0 = idle, 1 = typing the nickname, 2 = typing the URI.

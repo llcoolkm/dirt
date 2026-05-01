@@ -24,6 +24,19 @@ const (
 	allMemW   = 9
 )
 
+// Aggregated-view sort columns. Index into the click-target widths
+// list and into the sortedAllRows comparator switch.
+const (
+	allColHost int = iota
+	allColName
+	allColState
+	allColIP
+	allColOS
+	allColVCPU
+	allColMem
+	allColMax
+)
+
 // allRow is a VM bundled with the nick of the host it lives on.
 // The nick is the display key; backends are indexed by it.
 type allRow struct {
@@ -130,33 +143,91 @@ func allRefreshCmd(backends map[string]backend.Backend) tea.Cmd {
 
 // ────────────────────────── Aggregation ──────────────────────────
 
-// allRows assembles the aggregated rows in stable order (host nick
-// alphabetical, then VM name) and applies the active filter.
+// allRows assembles the aggregated rows, applies the active filter,
+// then sorts by the active column with the active direction.
 func (m Model) allRows() []allRow {
-	nicks := make([]string, 0, len(m.allSnapshots))
-	for nick := range m.allSnapshots {
-		nicks = append(nicks, nick)
-	}
-	sort.Strings(nicks)
-
 	rows := make([]allRow, 0, 64)
-	for _, nick := range nicks {
-		snap := m.allSnapshots[nick]
+	for nick, snap := range m.allSnapshots {
 		if snap == nil {
 			continue
 		}
-		domains := append([]lv.Domain(nil), snap.Domains...)
-		sort.SliceStable(domains, func(i, j int) bool {
-			return domains[i].Name < domains[j].Name
-		})
-		for _, d := range domains {
+		for _, d := range snap.Domains {
 			if !matchesAllFilter(d, nick, m.filter) {
 				continue
 			}
 			rows = append(rows, allRow{host: nick, dom: d})
 		}
 	}
+	flip := func(b bool) bool {
+		if m.allSortDesc {
+			return !b
+		}
+		return b
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		switch m.allSortIdx {
+		case allColName:
+			if a.dom.Name != b.dom.Name {
+				return flip(a.dom.Name < b.dom.Name)
+			}
+		case allColState:
+			if a.dom.State != b.dom.State {
+				// Running first when ascending — matches :vm sortByState.
+				if a.dom.State == lv.StateRunning {
+					return flip(true)
+				}
+				if b.dom.State == lv.StateRunning {
+					return flip(false)
+				}
+				return flip(a.dom.State < b.dom.State)
+			}
+		case allColIP:
+			if a.dom.IP != b.dom.IP {
+				return flip(a.dom.IP < b.dom.IP)
+			}
+		case allColOS:
+			if a.dom.OS != b.dom.OS {
+				return flip(a.dom.OS < b.dom.OS)
+			}
+		case allColVCPU:
+			if a.dom.NrVCPU != b.dom.NrVCPU {
+				return flip(a.dom.NrVCPU > b.dom.NrVCPU)
+			}
+		case allColMem:
+			if a.dom.MaxMemKB != b.dom.MaxMemKB {
+				return flip(a.dom.MaxMemKB > b.dom.MaxMemKB)
+			}
+		default: // allColHost
+			if a.host != b.host {
+				return flip(a.host < b.host)
+			}
+		}
+		// Deterministic tiebreak: host nick, then VM name.
+		if a.host != b.host {
+			return a.host < b.host
+		}
+		return a.dom.Name < b.dom.Name
+	})
 	return rows
+}
+
+// allHeaderClick maps a click on the aggregated view's header row to
+// a column and applies it as the new sort key. Same column toggles
+// direction.
+func (m Model) allHeaderClick(x int) Model {
+	widths := []int{allHostW, allNameW, allStateW, allIPW, allOSW, allVCPUW, allMemW}
+	idx, ok := clickedHeaderColIdx(x, widths)
+	if !ok {
+		return m
+	}
+	if m.allSortIdx == idx {
+		m.allSortDesc = !m.allSortDesc
+	} else {
+		m.allSortIdx = idx
+		m.allSortDesc = false
+	}
+	return m
 }
 
 func matchesAllFilter(d lv.Domain, host, filter string) bool {
@@ -190,14 +261,16 @@ func (m Model) allView() string {
 	title := headerTitle.Render("all hosts") +
 		headerLabel.Render(fmt.Sprintf("   %d up · %d down", connected, failed))
 
+	active := m.allSortIdx
+	desc := m.allSortDesc
 	header := listHeaderRow.Render(" " + strings.Join([]string{
-		padRight("HOST", allHostW),
-		padRight("NAME", allNameW),
-		padRight("STATE", allStateW),
-		padRight("IP", allIPW),
-		padRight("OS", allOSW),
-		padLeft("vCPU", allVCPUW),
-		padLeft("MEM", allMemW),
+		padRight(arrowedHeader("HOST", active == allColHost, desc), allHostW),
+		padRight(arrowedHeader("NAME", active == allColName, desc), allNameW),
+		padRight(arrowedHeader("STATE", active == allColState, desc), allStateW),
+		padRight(arrowedHeader("IP", active == allColIP, desc), allIPW),
+		padRight(arrowedHeader("OS", active == allColOS, desc), allOSW),
+		padLeft(arrowedHeader("vCPU", active == allColVCPU, desc), allVCPUW),
+		padLeft(arrowedHeader("MEM", active == allColMem, desc), allMemW),
 	}, "  "))
 
 	rows := []string{header}

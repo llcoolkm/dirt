@@ -68,6 +68,13 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if idx, ok := clickedSubviewRow(msg.Y, len(m.snapshots)); ok {
 			m.snapshotsSel = idx
 		}
+	case viewAll:
+		if msg.Y == subviewHeaderY {
+			return m.allHeaderClick(msg.X), nil
+		}
+		if idx, ok := clickedSubviewRow(msg.Y, len(m.allRows())); ok {
+			m.allSel = idx
+		}
 	}
 	return m, nil
 }
@@ -113,6 +120,13 @@ func (m Model) mouseWheel(dir int) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.snapshotsSel = next
+	case viewAll:
+		rows := len(m.allRows())
+		next := m.allSel + dir
+		if next < 0 || next >= rows {
+			return m, nil
+		}
+		m.allSel = next
 	case viewDetail:
 		// Wheel in the XML detail view scrolls the body, one line per tick.
 		m.detailScroll += dir
