@@ -294,6 +294,14 @@ const (
 	sortByCPU                         // 8
 	sortByUptime                      // 9
 	sortByTag                         // 10
+	sortByIORead                      // 11
+	sortByIOWrite                     // 12
+	sortByNetRx                       // 13
+	sortByNetTx                       // 14
+	sortByDiskPct                     // 15
+	sortByAutostart                   // 16
+	sortByPersistent                  // 17
+	sortByArch                        // 18
 )
 
 func (s sortColumn) String() string {
@@ -318,6 +326,22 @@ func (s sortColumn) String() string {
 		return "uptime"
 	case sortByTag:
 		return "tag"
+	case sortByIORead:
+		return "IO-R"
+	case sortByIOWrite:
+		return "IO-W"
+	case sortByNetRx:
+		return "NET-RX"
+	case sortByNetTx:
+		return "NET-TX"
+	case sortByDiskPct:
+		return "DISK%"
+	case sortByAutostart:
+		return "autostart"
+	case sortByPersistent:
+		return "persistent"
+	case sortByArch:
+		return "arch"
 	}
 	return "?"
 }
@@ -2017,6 +2041,89 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 		tb := strings.Join(b.Tags, ",")
 		if ta != tb {
 			return flip(ta < tb)
+		}
+		return a.Name < b.Name
+	case sortByIORead:
+		ha := m.history[a.UUID]
+		hb := m.history[b.UUID]
+		va, vb := 0.0, 0.0
+		if ha != nil {
+			va = currentRate(ha.blockRdOps)
+		}
+		if hb != nil {
+			vb = currentRate(hb.blockRdOps)
+		}
+		if va != vb {
+			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByIOWrite:
+		ha := m.history[a.UUID]
+		hb := m.history[b.UUID]
+		va, vb := 0.0, 0.0
+		if ha != nil {
+			va = currentRate(ha.blockWrOps)
+		}
+		if hb != nil {
+			vb = currentRate(hb.blockWrOps)
+		}
+		if va != vb {
+			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByNetRx:
+		ha := m.history[a.UUID]
+		hb := m.history[b.UUID]
+		va, vb := 0.0, 0.0
+		if ha != nil {
+			va = currentRate(ha.netRx)
+		}
+		if hb != nil {
+			vb = currentRate(hb.netRx)
+		}
+		if va != vb {
+			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByNetTx:
+		ha := m.history[a.UUID]
+		hb := m.history[b.UUID]
+		va, vb := 0.0, 0.0
+		if ha != nil {
+			va = currentRate(ha.netTx)
+		}
+		if hb != nil {
+			vb = currentRate(hb.netTx)
+		}
+		if va != vb {
+			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByDiskPct:
+		va, vb := 0.0, 0.0
+		if a.TotalDiskCapacityBytes > 0 {
+			va = float64(a.TotalDiskAllocationBytes) / float64(a.TotalDiskCapacityBytes)
+		}
+		if b.TotalDiskCapacityBytes > 0 {
+			vb = float64(b.TotalDiskAllocationBytes) / float64(b.TotalDiskCapacityBytes)
+		}
+		if va != vb {
+			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByAutostart:
+		if a.Autostart != b.Autostart {
+			return flip(a.Autostart && !b.Autostart)
+		}
+		return a.Name < b.Name
+	case sortByPersistent:
+		if a.Persistent != b.Persistent {
+			return flip(a.Persistent && !b.Persistent)
+		}
+		return a.Name < b.Name
+	case sortByArch:
+		if a.Arch != b.Arch {
+			return flip(a.Arch < b.Arch)
 		}
 		return a.Name < b.Name
 	}

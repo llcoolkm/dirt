@@ -12,11 +12,15 @@ func TestIsSortableID(t *testing.T) {
 		{"cpu", true},
 		{"mem_pct", true},
 		{"uptime", true},
+		// IO / NET / autostart / persistent / arch all gained sort
+		// enums alongside header-click discoverability.
+		{"io_r", true},
+		{"io_w", true},
+		{"net_rx", true},
+		{"autostart", true},
+		{"arch", true},
 		{"", false},
 		{"bogus", false},
-		// io_r / io_w in vmColumns have no sort enum — verify rejection.
-		{"io_r", false},
-		{"io_w", false},
 	}
 	for _, c := range cases {
 		if got := isSortableID(c.id); got != c.want {

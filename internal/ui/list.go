@@ -88,7 +88,7 @@ var vmColumns = []column{
 			}
 			return "—"
 		}},
-	{id: "mem_bar", label: "MEM", width: colBarW, leftAlign: true,
+	{id: "mem_bar", label: "MEM", sort: sortByMemPct, width: colBarW, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning {
 				return ""
@@ -106,7 +106,7 @@ var vmColumns = []column{
 			}
 			return fmt.Sprintf("%5.1f%%", h.currentCPU())
 		}},
-	{id: "cpu_bar", label: "CPU", width: colBarW, leftAlign: true,
+	{id: "cpu_bar", label: "CPU", sort: sortByCPU, width: colBarW, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return ""
@@ -123,21 +123,21 @@ var vmColumns = []column{
 			}
 			return "—"
 		}},
-	{id: "io_r", label: "IO-R", width: colIOReadW,
+	{id: "io_r", label: "IO-R", sort: sortByIORead, width: colIOReadW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%.0f", currentRate(h.blockRdOps))
 		}},
-	{id: "io_w", label: "IO-W", width: colIOWriteW,
+	{id: "io_w", label: "IO-W", sort: sortByIOWrite, width: colIOWriteW,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return fmt.Sprintf("%.0f", currentRate(h.blockWrOps))
 		}},
-	{id: "disk_bar", label: "DISK", width: colBarW, leftAlign: true,
+	{id: "disk_bar", label: "DISK", sort: sortByDiskPct, width: colBarW, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.TotalDiskCapacityBytes == 0 {
 				return ""
@@ -145,35 +145,35 @@ var vmColumns = []column{
 			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
 			return "[" + storageColorBar(pct, 5) + "]"
 		}},
-	{id: "net_rx", label: "NET-RX", width: 8, leftAlign: false,
+	{id: "net_rx", label: "NET-RX", sort: sortByNetRx, width: 8, leftAlign: false,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return formatRate(currentRate(h.netRx))
 		}},
-	{id: "net_tx", label: "NET-TX", width: 8, leftAlign: false,
+	{id: "net_tx", label: "NET-TX", sort: sortByNetTx, width: 8, leftAlign: false,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {
 				return "—"
 			}
 			return formatRate(currentRate(h.netTx))
 		}},
-	{id: "autostart", label: "AUTO", width: 5, leftAlign: true,
+	{id: "autostart", label: "AUTO", sort: sortByAutostart, width: 5, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.Autostart {
 				return "Y"
 			}
 			return "N"
 		}},
-	{id: "persistent", label: "PERS", width: 5, leftAlign: true,
+	{id: "persistent", label: "PERS", sort: sortByPersistent, width: 5, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.Persistent {
 				return "Y"
 			}
 			return "N"
 		}},
-	{id: "arch", label: "ARCH", width: 8, leftAlign: true,
+	{id: "arch", label: "ARCH", sort: sortByArch, width: 8, leftAlign: true,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.Arch == "" {
 				return "—"
