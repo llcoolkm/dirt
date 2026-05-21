@@ -383,7 +383,8 @@ func allStatusBar(m Model, width int) string {
 
 // enterAllView switches to the aggregated view and kicks off any
 // missing host connections plus an immediate refresh of those
-// already open.
+// already open. Honours hostMarks: when at least one mark is set,
+// only those hosts are included; an empty set means "every host".
 func (m Model) enterAllView() (Model, tea.Cmd) {
 	m.mode = viewAll
 	m.allSel = 0
@@ -397,12 +398,11 @@ func (m Model) enterAllView() (Model, tea.Cmd) {
 		m.allErrs = make(map[string]error)
 	}
 
-	// Hosts must be loaded already (Init seeds the file). If empty,
-	// fall back to the current m.client as the only known endpoint.
-	hosts := m.hosts
+	hosts := m.fleetHosts()
 	if len(hosts) == 0 && m.client != nil {
 		hosts = []config.Host{{Name: m.client.Hostname(), URI: m.client.URI()}}
 	}
+	m.pruneUnmarkedBackends(hosts)
 
 	cmds := []tea.Cmd{
 		allOpenBackendsCmd(hosts, m.allBackends),
@@ -411,6 +411,51 @@ func (m Model) enterAllView() (Model, tea.Cmd) {
 		cmds = append(cmds, allRefreshCmd(m.allBackends))
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// fleetHosts returns the subset of m.hosts the master selected for
+// the aggregated view. Marks empty (or all-false) means "every host"
+// so first-time users see something when they enter :all.
+func (m Model) fleetHosts() []config.Host {
+	anyMark := false
+	for _, on := range m.hostMarks {
+		if on {
+			anyMark = true
+			break
+		}
+	}
+	if !anyMark {
+		return m.hosts
+	}
+	out := make([]config.Host, 0, len(m.hosts))
+	for _, h := range m.hosts {
+		if m.hostMarks[h.Name] {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// pruneUnmarkedBackends closes and drops any open backend whose host
+// is no longer in keep (typically the current fleet set). Called when
+// re-entering :all or refreshing so unmarking a host actually severs
+// its connection instead of leaving it ticking in the background.
+func (m *Model) pruneUnmarkedBackends(keep []config.Host) {
+	wanted := make(map[string]bool, len(keep))
+	for _, h := range keep {
+		wanted[h.Name] = true
+	}
+	for nick, c := range m.allBackends {
+		if wanted[nick] {
+			continue
+		}
+		if c != nil {
+			c.Close()
+		}
+		delete(m.allBackends, nick)
+		delete(m.allSnapshots, nick)
+		delete(m.allErrs, nick)
+	}
 }
 
 // CloseAllBackends releases every backend opened for the aggregated
@@ -449,14 +494,18 @@ func (m Model) handleAllKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.command = ""
 		return m, nil
 	case "R", "F5":
-		// Re-attempt failed hosts and refresh any open ones.
+		// Re-attempt failed hosts and refresh any open ones, honouring
+		// the current fleet selection (so newly-unmarked hosts drop
+		// out on refresh, not just on next :all entry).
+		hosts := m.fleetHosts()
+		m.pruneUnmarkedBackends(hosts)
 		for nick, err := range m.allErrs {
 			if err != nil {
 				delete(m.allErrs, nick)
 			}
 		}
 		cmds := []tea.Cmd{
-			allOpenBackendsCmd(m.hosts, m.allBackends),
+			allOpenBackendsCmd(hosts, m.allBackends),
 			allRefreshCmd(m.allBackends),
 		}
 		return m, tea.Batch(cmds...)

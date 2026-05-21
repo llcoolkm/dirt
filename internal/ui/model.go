@@ -193,6 +193,11 @@ type Model struct {
 	hostsProbe    map[string]hostProbeStatus
 	hostsSortIdx  int
 	hostsSortDesc bool
+	// hostMarks is the set of hosts (by nick) the master has chosen
+	// for the `:all` fleet view. Empty = all hosts (the natural default
+	// for first-time users). SPACE in :host toggles a nick; persisted
+	// via state.yaml fleet_hosts on :save.
+	hostMarks map[string]bool
 
 	// Multi-host aggregated view (`:all`). Backends opened lazily on
 	// first entry and reused thereafter. Snapshots refresh on every
@@ -364,6 +369,7 @@ func New(c backend.Backend) Model {
 		allBackends:     make(map[string]backend.Backend),
 		allSnapshots:    make(map[string]*lv.Snapshot),
 		allErrs:         make(map[string]error),
+		hostMarks:       make(map[string]bool),
 	}
 }
 
@@ -377,6 +383,12 @@ func (m Model) WithConfig(cfg config.Config) Model {
 	m.activeColumns = filterActiveColumns(vmColumns, cfg.List.Columns)
 	m.markAdvance = cfg.List.MarkAdvance
 	ApplyTheme(cfg.Theme)
+	if m.hostMarks == nil {
+		m.hostMarks = make(map[string]bool, len(cfg.FleetHosts))
+	}
+	for _, nick := range cfg.FleetHosts {
+		m.hostMarks[nick] = true
+	}
 	return m
 }
 
@@ -2501,12 +2513,20 @@ func (m Model) execThemeCommand(name string) Model {
 func (m Model) execSaveCommand() (Model, tea.Cmd) {
 	visibility := m.currentColumnVisibility()
 	rev := m.sortDesc
+	fleet := make([]string, 0, len(m.hostMarks))
+	for nick, on := range m.hostMarks {
+		if on {
+			fleet = append(fleet, nick)
+		}
+	}
+	sort.Strings(fleet)
 	state := config.State{
 		Theme:       currentTheme,
 		SortBy:      sortColumnID(m.sortColumn),
 		SortReverse: &rev,
 		MarkAdvance: m.markAdvance,
 		Columns:     visibility,
+		FleetHosts:  fleet,
 	}
 	if err := config.SaveState(state); err != nil {
 		m.flashf("✗ save: %v", err)

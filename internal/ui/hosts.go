@@ -238,7 +238,7 @@ func (m Model) hostsView() string {
 	} else {
 		sorted := m.sortedHosts()
 		for i, h := range sorted {
-			rows = append(rows, renderHostRow(h, m.hostsProbe[h.Name], m.client.URI(), i == m.hostsSel))
+			rows = append(rows, renderHostRow(h, m.hostsProbe[h.Name], m.client.URI(), i == m.hostsSel, m.hostMarks[h.Name]))
 		}
 	}
 
@@ -251,12 +251,18 @@ func (m Model) hostsView() string {
 
 // renderHostRow is one row of the host table. The "current" host (the
 // one dirt is actively connected to) is rendered in green to mirror the
-// running state indicator elsewhere.
-func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected bool) string {
+// running state indicator elsewhere. The leading cell doubles as the
+// fleet-mark glyph: ✓ when the host is marked for `:all`, space otherwise.
+func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected, marked bool) string {
 	statusStr, statusStyle := probeDisplay(p, h.URI == currentURI)
 	domainsStr := "—"
 	if p.state == probeOK {
 		domainsStr = fmt.Sprintf("%d", p.domains)
+	}
+
+	prefix := " "
+	if marked {
+		prefix = "✓"
 	}
 
 	if selected {
@@ -266,7 +272,7 @@ func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected
 			padRight(statusStr, hostsStatusW),
 			padLeft(domainsStr, hostsDomainsW),
 		}, "  ")
-		return rowSelected.Render(" " + row)
+		return rowSelected.Render(prefix + row)
 	}
 
 	fg := lipgloss.NewStyle().Foreground(colFG)
@@ -275,6 +281,9 @@ func renderHostRow(h config.Host, p hostProbeStatus, currentURI string, selected
 		fg.Render(padRight(truncate(h.URI, hostsURIW), hostsURIW)),
 		statusStyle.Render(padRight(statusStr, hostsStatusW)),
 		fg.Render(padLeft(domainsStr, hostsDomainsW)),
+	}
+	if marked {
+		return markStyle.Render("✓") + strings.Join(cols, "  ")
 	}
 	return " " + strings.Join(cols, "  ")
 }
@@ -317,15 +326,30 @@ func hostsStatusBar(m Model, width int) string {
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
 	}
+	// Count fleet marks for the master-facing summary; 0 marks means
+	// :all opens every host (the natural first-time default).
+	marked := 0
+	for _, on := range m.hostMarks {
+		if on {
+			marked++
+		}
+	}
+	fleetSummary := ""
+	if marked > 0 {
+		fleetSummary = " · " + headerLabel.Render(fmt.Sprintf("✓%d fleet", marked))
+	}
+
 	// Compact the status bar for narrow terminals — drop the verbose
 	// action names first, then the less-essential keys, before it wraps.
 	full := " " + key("j/k") + " nav  " + key("Enter") + " connect  " +
+		key("space") + " mark for :all  " +
 		key("a") + " add  " + key("e") + " edit file  " +
 		key("R") + " re-probe  " + key("D") + " remove  " +
-		key("esc") + " back"
+		key("esc") + " back" + fleetSummary
 	medium := " " + key("j/k") + " nav  " + key("Enter") + " connect  " +
-		key("a") + " add  " + key("R") + " re-probe  " + key("esc") + " back"
-	short := " " + key("Enter") + " connect  " + key("a") + " add  " + key("esc") + " back"
+		key("space") + " mark  " +
+		key("a") + " add  " + key("R") + " re-probe  " + key("esc") + " back" + fleetSummary
+	short := " " + key("Enter") + " connect  " + key("space") + " mark  " + key("esc") + " back"
 	hint := full
 	if width < 80 {
 		hint = short
@@ -361,6 +385,21 @@ func (m Model) handleHostsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if h, ok := m.currentHostEntry(); ok {
 			return m.connectToHost(h.URI, h.Name)
+		}
+		return m, nil
+	case " ", "space":
+		// Toggle this host's inclusion in the `:all` fleet view.
+		// Empty mark set means "every host"; mark-then-unmark to clear
+		// (or just leave the set non-empty with everything ticked).
+		if h, ok := m.currentHostEntry(); ok {
+			if m.hostMarks == nil {
+				m.hostMarks = make(map[string]bool)
+			}
+			if m.hostMarks[h.Name] {
+				delete(m.hostMarks, h.Name)
+			} else {
+				m.hostMarks[h.Name] = true
+			}
 		}
 		return m, nil
 	case "R", "F5":

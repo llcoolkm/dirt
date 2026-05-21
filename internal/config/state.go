@@ -25,6 +25,11 @@ type State struct {
 	SortReverse *bool           `yaml:"sort_reverse,omitempty"`
 	MarkAdvance string          `yaml:"mark_advance,omitempty"`
 	Columns     map[string]bool `yaml:"columns,omitempty"`
+
+	// FleetHosts is the set of host nicks the master picked for `:all`.
+	// Empty / nil means "every host in hosts.yaml" — the default for
+	// first-time users so :all stays useful before any marking happens.
+	FleetHosts []string `yaml:"fleet_hosts,omitempty"`
 }
 
 // StatePath returns the absolute path of the state file, honouring
@@ -126,5 +131,9 @@ func (s State) MergeInto(cfg *Config) {
 		for k, v := range s.Columns {
 			cfg.List.Columns[k] = v
 		}
+	}
+	if s.FleetHosts != nil {
+		// Copy so the merged Config isn't aliased to the state slice.
+		cfg.FleetHosts = append([]string(nil), s.FleetHosts...)
 	}
 }

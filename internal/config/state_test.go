@@ -101,6 +101,28 @@ func TestMergeIntoOverlaysColumnsKeyByKey(t *testing.T) {
 	}
 }
 
+func TestFleetHostsRoundTrip(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	if err := SaveState(State{FleetHosts: []string{"lab1", "prod"}}); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	got, err := LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if len(got.FleetHosts) != 2 || got.FleetHosts[0] != "lab1" || got.FleetHosts[1] != "prod" {
+		t.Errorf("FleetHosts: got %v, want [lab1 prod]", got.FleetHosts)
+	}
+}
+
+func TestMergeIntoCopiesFleetHosts(t *testing.T) {
+	cfg := DefaultConfig()
+	State{FleetHosts: []string{"a", "b"}}.MergeInto(&cfg)
+	if len(cfg.FleetHosts) != 2 || cfg.FleetHosts[0] != "a" {
+		t.Errorf("FleetHosts: got %v, want [a b]", cfg.FleetHosts)
+	}
+}
+
 func TestSaveStateCreatesDirectory(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)

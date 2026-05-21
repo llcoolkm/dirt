@@ -10,7 +10,7 @@ import (
 func TestRenderHostRowConnectedTagging(t *testing.T) {
 	h := config.Host{Name: "remote", URI: "qemu+ssh://remote/system"}
 	probe := hostProbeStatus{state: probeOK, domains: 5}
-	got := renderHostRow(h, probe, h.URI, false)
+	got := renderHostRow(h, probe, h.URI, false, false)
 	plain := stripANSI(got)
 	if !strings.Contains(plain, "remote") {
 		t.Errorf("name not rendered: %s", plain)
@@ -23,7 +23,7 @@ func TestRenderHostRowConnectedTagging(t *testing.T) {
 func TestRenderHostRowReachable(t *testing.T) {
 	h := config.Host{Name: "remote", URI: "qemu+ssh://remote/system"}
 	probe := hostProbeStatus{state: probeOK, domains: 3}
-	got := renderHostRow(h, probe, "qemu:///system", false) // different URI = not current
+	got := renderHostRow(h, probe, "qemu:///system", false, false) // different URI = not current
 	plain := stripANSI(got)
 	if !strings.Contains(plain, "reachable") {
 		t.Errorf("expected 'reachable' for non-current OK probe, got: %s", plain)
@@ -33,7 +33,7 @@ func TestRenderHostRowReachable(t *testing.T) {
 func TestRenderHostRowFailed(t *testing.T) {
 	h := config.Host{Name: "down", URI: "qemu+ssh://down/system"}
 	probe := hostProbeStatus{state: probeFailed}
-	got := renderHostRow(h, probe, "qemu:///system", false)
+	got := renderHostRow(h, probe, "qemu:///system", false, false)
 	plain := stripANSI(got)
 	if !strings.Contains(plain, "unreachable") {
 		t.Errorf("expected 'unreachable' for failed probe, got: %s", plain)
@@ -42,10 +42,19 @@ func TestRenderHostRowFailed(t *testing.T) {
 
 func TestRenderHostRowProbing(t *testing.T) {
 	h := config.Host{Name: "init", URI: "qemu+ssh://init/system"}
-	got := renderHostRow(h, hostProbeStatus{}, "qemu:///system", false)
+	got := renderHostRow(h, hostProbeStatus{}, "qemu:///system", false, false)
 	plain := stripANSI(got)
 	if !strings.Contains(plain, "probing") {
 		t.Errorf("expected 'probing…' for unset probe, got: %s", plain)
+	}
+}
+
+func TestRenderHostRowMarkedCarriesGlyph(t *testing.T) {
+	h := config.Host{Name: "marked", URI: "qemu+ssh://marked/system"}
+	got := renderHostRow(h, hostProbeStatus{state: probeOK}, "qemu:///system", false, true)
+	plain := stripANSI(got)
+	if !strings.Contains(plain, "✓") {
+		t.Errorf("expected fleet mark glyph, got: %s", plain)
 	}
 }
 

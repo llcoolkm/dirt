@@ -27,6 +27,12 @@ type Config struct {
 
 	// List holds VM-table-specific preferences.
 	List ListConfig `yaml:"list"`
+
+	// FleetHosts is the set of host nicks included in the `:all` view.
+	// Empty means "every host in hosts.yaml". Lives in state.yaml; only
+	// ever written through SaveState. Tagged omitempty so a freshly
+	// seeded config.yaml stays clean.
+	FleetHosts []string `yaml:"fleet_hosts,omitempty"`
 }
 
 // ListConfig holds preferences for the main VM list.
