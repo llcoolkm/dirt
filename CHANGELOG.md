@@ -2,6 +2,16 @@
 
 All notable changes to dirt are documented here.
 
+## v0.10.1 — 2026-06-04
+
+**Numeric disk columns in the main table, hand-picked hosts for `:all`.**
+
+### Disk columns
+- **`disk_pct` (DISK%), `disk_used` (DUSED), `disk_free` (DFREE)** — the main VM table previously offered only the DISK capacity bar; these three optional columns show the numbers behind it: usage percent, bytes used, and bytes free. All sortable (header click), toggleable via `:columns`, and render `—` when capacity is unknown. DISK% shares the bar's sort key; used/free get dedicated `DUSED`/`DFREE` sorts.
+
+### Pick-and-choose hosts for `:all`
+- **SPACE marks on `:host` scope the fleet view** — mark a subset of hosts in `:host`, and `:all` connects only to the marked ones instead of every entry in `hosts.yaml`. No marks means all hosts, as before. Marks persist to `state.yaml` (`fleet_hosts`) on `:save`; `R` inside `:all` honours the selection and severs connections to unmarked hosts.
+
 ## v0.10.0 — 2026-05-01
 
 **Multi-host fleet view, backend abstraction, every column sortable, runtime state separated from config.**
