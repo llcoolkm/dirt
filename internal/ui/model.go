@@ -309,6 +309,8 @@ const (
 	sortByAutostart                   // 16
 	sortByPersistent                  // 17
 	sortByArch                        // 18
+	sortByDiskUsed                    // 19
+	sortByDiskFree                    // 20
 )
 
 func (s sortColumn) String() string {
@@ -343,6 +345,10 @@ func (s sortColumn) String() string {
 		return "NET-TX"
 	case sortByDiskPct:
 		return "DISK%"
+	case sortByDiskUsed:
+		return "DUSED"
+	case sortByDiskFree:
+		return "DFREE"
 	case sortByAutostart:
 		return "autostart"
 	case sortByPersistent:
@@ -2123,6 +2129,18 @@ func (m Model) lessDomain(a, b lv.Domain) bool {
 		}
 		if va != vb {
 			return flip(va > vb)
+		}
+		return a.Name < b.Name
+	case sortByDiskUsed:
+		if a.TotalDiskAllocationBytes != b.TotalDiskAllocationBytes {
+			return flip(a.TotalDiskAllocationBytes > b.TotalDiskAllocationBytes)
+		}
+		return a.Name < b.Name
+	case sortByDiskFree:
+		fa := a.TotalDiskCapacityBytes - a.TotalDiskAllocationBytes
+		fb := b.TotalDiskCapacityBytes - b.TotalDiskAllocationBytes
+		if fa != fb {
+			return flip(fa > fb)
 		}
 		return a.Name < b.Name
 	case sortByAutostart:

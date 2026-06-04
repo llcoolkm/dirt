@@ -70,6 +70,63 @@ func TestVisibleDomainsSortByMem(t *testing.T) {
 	}
 }
 
+func diskSortFixture() Model {
+	return Model{
+		snap: &lv.Snapshot{Domains: []lv.Domain{
+			// charlie: 30G used of 100G  → 70G free, 30%
+			{Name: "charlie", UUID: "uc", State: lv.StateRunning,
+				TotalDiskCapacityBytes: 100 << 30, TotalDiskAllocationBytes: 30 << 30},
+			// alpha: 10G used of 20G    → 10G free, 50%
+			{Name: "alpha", UUID: "ua", State: lv.StateShutoff,
+				TotalDiskCapacityBytes: 20 << 30, TotalDiskAllocationBytes: 10 << 30},
+			// beta: 80G used of 100G    → 20G free, 80%
+			{Name: "beta", UUID: "ub", State: lv.StateRunning,
+				TotalDiskCapacityBytes: 100 << 30, TotalDiskAllocationBytes: 80 << 30},
+		}},
+		marks:         make(map[string]bool),
+		activeColumns: vmColumns,
+	}
+}
+
+func TestVisibleDomainsSortByDiskUsed(t *testing.T) {
+	m := diskSortFixture()
+	m.sortColumn = sortByDiskUsed
+	got := m.visibleDomains()
+	// Used bytes descending: beta(80G) > charlie(30G) > alpha(10G).
+	want := []string{"beta", "charlie", "alpha"}
+	for i, d := range got {
+		if d.Name != want[i] {
+			t.Errorf("sortByDiskUsed[%d]=%q, want %q", i, d.Name, want[i])
+		}
+	}
+}
+
+func TestVisibleDomainsSortByDiskFree(t *testing.T) {
+	m := diskSortFixture()
+	m.sortColumn = sortByDiskFree
+	got := m.visibleDomains()
+	// Free bytes descending: charlie(70G) > beta(20G) > alpha(10G).
+	want := []string{"charlie", "beta", "alpha"}
+	for i, d := range got {
+		if d.Name != want[i] {
+			t.Errorf("sortByDiskFree[%d]=%q, want %q", i, d.Name, want[i])
+		}
+	}
+}
+
+func TestVisibleDomainsSortByDiskPct(t *testing.T) {
+	m := diskSortFixture()
+	m.sortColumn = sortByDiskPct
+	got := m.visibleDomains()
+	// Usage fraction descending: beta(80%) > alpha(50%) > charlie(30%).
+	want := []string{"beta", "alpha", "charlie"}
+	for i, d := range got {
+		if d.Name != want[i] {
+			t.Errorf("sortByDiskPct[%d]=%q, want %q", i, d.Name, want[i])
+		}
+	}
+}
+
 func TestVisibleDomainsFilterCaseInsensitive(t *testing.T) {
 	m := sortFilterFixture()
 	m.sortColumn = sortByName

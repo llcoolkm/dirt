@@ -145,6 +145,32 @@ var vmColumns = []column{
 			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
 			return "[" + storageColorBar(pct, 5) + "]"
 		}},
+	{id: "disk_pct", label: "DISK%", sort: sortByDiskPct, width: colMemPctW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.TotalDiskCapacityBytes == 0 {
+				return "—"
+			}
+			pct := float64(d.TotalDiskAllocationBytes) / float64(d.TotalDiskCapacityBytes) * 100
+			return fmt.Sprintf("%4.1f%%", pct)
+		}},
+	{id: "disk_used", label: "DUSED", sort: sortByDiskUsed, width: colMemW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.TotalDiskCapacityBytes == 0 {
+				return "—"
+			}
+			return formatBytes(float64(d.TotalDiskAllocationBytes))
+		}},
+	{id: "disk_free", label: "DFREE", sort: sortByDiskFree, width: colMemW,
+		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
+			if d.TotalDiskCapacityBytes == 0 {
+				return "—"
+			}
+			free := uint64(0)
+			if d.TotalDiskCapacityBytes > d.TotalDiskAllocationBytes {
+				free = d.TotalDiskCapacityBytes - d.TotalDiskAllocationBytes
+			}
+			return formatBytes(float64(free))
+		}},
 	{id: "net_rx", label: "NET-RX", sort: sortByNetRx, width: 8, leftAlign: false,
 		render: func(d lv.Domain, h *domHistory, qga lv.GuestUptime) string {
 			if d.State != lv.StateRunning || h == nil {

@@ -39,7 +39,8 @@ type Config struct {
 type ListConfig struct {
 	// SortBy is the column to sort on at startup. Valid values match
 	// the column ids used in ui.vmColumns: name, state, ip, os, vcpu,
-	// mem, mem_pct, cpu, uptime. Unknown values fall back to state.
+	// mem, mem_pct, cpu, uptime, disk_pct, disk_used, disk_free.
+	// Unknown values fall back to state.
 	SortBy string `yaml:"sort_by"`
 
 	// SortReverse flips the sort direction from the column's natural
