@@ -2,6 +2,20 @@
 
 All notable changes to dirt are documented here.
 
+## v0.11.0 — 2026-08-12
+
+**Live guest OS, honest SWAP messaging, static DHCP mappings. All three from GitHub issues #1–#3 — thanks @StusBrainDump.**
+
+### Live guest OS (#1)
+- **The OS column now reflects the OS actually running in the guest**, not the libosinfo metadata frozen into the domain XML at install time. dirt queries the qemu-guest-agent (`guest-get-osinfo` — a direct QGA call that works on Linux and Windows agents alike) for every running VM on a slow cadence (5 min TTL, 30 s retry when the agent is unreachable) and overlays a compact label ("Ubuntu 24.04", "Windows 11") onto the snapshot. Upgrade the distro inside the VM and the column follows. The libosinfo metadata remains as the fallback for VMs without an agent.
+
+### SWAP field no longer lies to Windows VMs (#2)
+- The swap probe reads `/proc/meminfo` via `guest-exec`, which only exists on Linux-like guests. Previously **every** probe failure rendered "install qemu-guest-agent" — misleading on Windows, where the agent answers but the exec fails. The live OS info now disambiguates: Windows guest → `n/a (Windows guest)`, agent alive but probe failed → `unavailable`, agent genuinely unreachable → the install hint. The MEM graphs' "Swap used %" panel gets the same treatment.
+
+### Static DHCP mappings in the leases view (#3)
+- **TYPE column** — each lease now shows `static` (highlighted) or `dynamic`, derived from the network XML's `<dhcp><host>` reservations (matched by MAC, IP as fallback).
+- **`m` — make static** — the leases view gains a cursor (j/k/g/G) and an `m` action: pick a dynamic lease, confirm with `y`, and dirt adds a `<dhcp><host mac name ip>` reservation for it via the libvirt network-update API. Active networks are updated live **and** in the persistent config, so the mapping takes effect immediately and survives a network restart. The list reloads and the row flips to `static`.
+
 ## v0.10.1 — 2026-06-04
 
 **Numeric disk columns in the main table, hand-picked hosts for `:all`.**

@@ -47,7 +47,7 @@ I worked almost exclusively in the console and have been missing a simple TUI to
 - **Command palette** — `:` with prefix matching and tab completion
 - **Vim-style keybindings** throughout
 - **Auto-refresh** every second; instant refresh after any action
-- **OS detection** from libosinfo metadata (Ubuntu, Debian, Fedora, RHEL, Arch, openSUSE, Windows, BSD, …)
+- **OS detection** — live from the qemu-guest-agent (`guest-get-osinfo`) when available, so in-guest upgrades show up; falls back to libosinfo metadata (Ubuntu, Debian, Fedora, RHEL, Arch, openSUSE, Windows, BSD, …)
 - **IP address detection** via DHCP lease → ARP → QGA fallback chain
 
 ## Requirements
@@ -240,6 +240,16 @@ Press `?` inside `dirt` for the full help modal. The essentials:
 | `Enter` | show DHCP leases (hostname, MAC, IP, expiry) |
 | `R` / `F5` | refresh list |
 | `esc` / `q` | back to VM list |
+
+### Leases view
+| Key | Action |
+|-----|--------|
+| `j` / `k` | navigate leases |
+| `m` | make the selected dynamic lease a static mapping (asks `y` to confirm) |
+| `R` / `F5` | refresh list |
+| `esc` / `q` | back to networks |
+
+The TYPE column shows whether a lease is `static` (backed by a `<dhcp><host>` reservation in the network XML) or `dynamic`. Promoting a lease with `m` adds the reservation live **and** to the persistent config via the libvirt network-update API.
 
 ### Pools / Volumes view
 | Key | Action |
