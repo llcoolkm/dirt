@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/NimbleMarkets/ntcharts/linechart/timeserieslinechart"
+	"github.com/llcoolkm/dirt/internal/lv"
 )
 
 // Graph sub-tab indices.
@@ -201,7 +202,7 @@ func renderVCPUChart(h *domHistory, w int, interval time.Duration) string {
 	return title + "\n" + chart.View()
 }
 
-func renderMEMTab(h *domHistory, w int, interval time.Duration) string {
+func renderMEMTab(h *domHistory, w int, interval time.Duration, osInfo lv.GuestOSInfo) string {
 	c1 := chartBlock("Used %", fmtPct(h.memUsedPct),
 		h.memUsedPct, w, chartHeight, 0, 100, true,
 		lipgloss.NewStyle().Foreground(colMemUsed), pctLabelFmt, interval)
@@ -224,8 +225,12 @@ func renderMEMTab(h *domHistory, w int, interval time.Duration) string {
 			h.swapUsedPct, w, chartHeight, 0, 100, true,
 			lipgloss.NewStyle().Foreground(colSwap), pctLabelFmt, interval)
 	} else {
+		hint := "(needs qemu-guest-agent)"
+		if osInfo.IsWindows() {
+			hint = "n/a (Windows guest)"
+		}
 		c4 = headerTitle.Render("Swap used %") + "\n" +
-			headerLabel.Render("  (needs qemu-guest-agent)")
+			headerLabel.Render("  "+hint)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, c1, "", c2, "", c3, "", c4)

@@ -2705,7 +2705,7 @@ func (m *Model) rebuildGraphsCache() {
 	case graphTabCPU:
 		m.graphsCache = renderCPUTab(h, w, m.refreshInterval)
 	case graphTabMEM:
-		m.graphsCache = renderMEMTab(h, w, m.refreshInterval)
+		m.graphsCache = renderMEMTab(h, w, m.refreshInterval, m.guestOS[d.Name])
 	case graphTabDISK:
 		m.graphsCache = renderDISKTab(h, w, m.refreshInterval)
 	case graphTabNET:

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,29 @@ func TestApplyGuestOSOverlaysLiveLabel(t *testing.T) {
 	}
 	if got := m.snap.Domains[1].OS; got != "Debian 12" {
 		t.Errorf("vm2 OS = %q, want fallback 'Debian 12'", got)
+	}
+}
+
+func TestSwapLineMessages(t *testing.T) {
+	d := lv.Domain{Name: "vm1", State: lv.StateRunning}
+	failed := lv.SwapInfo{Available: false}
+	cases := []struct {
+		name   string
+		osInfo lv.GuestOSInfo
+		want   string
+	}{
+		// Agent alive, guest is Windows: swap query is inapplicable, not missing.
+		{"windows guest", lv.GuestOSInfo{Available: true, ID: "mswindows"}, "n/a (Windows guest)"},
+		// Agent alive on a non-Windows guest but the exec probe failed.
+		{"exec failed", lv.GuestOSInfo{Available: true, ID: "ubuntu"}, "unavailable"},
+		// Agent genuinely unreachable: keep the install hint.
+		{"no agent", lv.GuestOSInfo{}, "install qemu-guest-agent"},
+	}
+	for _, c := range cases {
+		got := stripANSI(buildVMSwapLine(d, nil, failed, c.osInfo, 80))
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: swap line = %q, want substring %q", c.name, got, c.want)
+		}
 	}
 }
 

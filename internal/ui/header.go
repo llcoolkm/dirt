@@ -108,7 +108,7 @@ func (m Model) runningVMBox(d lv.Domain, boxWidth int) string {
 
 	cpuLine := buildCPULine("CPU  ", h.currentCPU(), inner)
 	memLine := buildVMMemLine(d, inner)
-	swapLine := buildVMSwapLine(d, h, m.swap[d.Name], inner)
+	swapLine := buildVMSwapLine(d, h, m.swap[d.Name], m.guestOS[d.Name], inner)
 	diskLine := buildVMDiskLine(h, inner)
 	netLine := buildVMNetLine(h, inner)
 	storeLine := buildVMStorageLine(d, h)
@@ -337,8 +337,13 @@ func buildVMMemLine(d lv.Domain, inner int) string {
 }
 
 // buildVMSwapLine renders the per-VM swap line. With QGA: usage bar.
-// Without QGA: a compact "—" placeholder.
-func buildVMSwapLine(d lv.Domain, h *domHistory, info lv.SwapInfo, inner int) string {
+// The swap probe reads /proc/meminfo via guest-exec, which only exists on
+// Linux-like guests — so a failed probe does not necessarily mean the
+// agent is missing. The live OS info (guest-get-osinfo, which works on
+// Windows agents too) disambiguates: agent answered but the guest is
+// Windows → "n/a"; agent answered but the exec failed → "unavailable";
+// agent truly unreachable → the install hint.
+func buildVMSwapLine(d lv.Domain, h *domHistory, info lv.SwapInfo, osInfo lv.GuestOSInfo, inner int) string {
 	if info.Available {
 		if !info.HasSwap {
 			return headerLabel.Render("SWAP ") + headerValue.Render("disabled in guest")
@@ -356,6 +361,15 @@ func buildVMSwapLine(d lv.Domain, h *domHistory, info lv.SwapInfo, inner int) st
 		return headerLabel.Render(label) +
 			headerLabel.Render("[") + swapBar + headerLabel.Render("]") +
 			headerValue.Render(detail)
+	}
+	if osInfo.IsWindows() {
+		return headerLabel.Render("SWAP ") + headerValue.Render("n/a (Windows guest)")
+	}
+	if osInfo.Available {
+		// The agent is alive (osinfo answered) but the swap probe failed —
+		// the guest just can't run the /proc/meminfo exec. Don't tell the
+		// user to install an agent that is already installed and working.
+		return headerLabel.Render("SWAP ") + headerValue.Render("unavailable")
 	}
 	return headerLabel.Render("SWAP ") + headerValue.Render("(install qemu-guest-agent for usage)")
 }
