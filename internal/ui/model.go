@@ -55,6 +55,15 @@ const swapTTL = 5 * time.Second
 // changes monotonically (or resets on reboot), so a slower refresh is fine.
 const guestUptimeTTL = 10 * time.Second
 
+// guestOSTTL controls how often we re-query QGA for the live guest OS
+// (guest-get-osinfo). The OS only changes on an in-guest upgrade, so a
+// slow refresh is plenty. Failed probes retry sooner so a freshly
+// installed agent is picked up without waiting the full TTL.
+const (
+	guestOSTTL      = 5 * time.Minute
+	guestOSRetryTTL = 30 * time.Second
+)
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	client backend.Backend
@@ -81,6 +90,11 @@ type Model struct {
 	// QGA-backed guest uptime info, keyed by domain name. Used to detect
 	// in-guest reboots that the host-side qemu process start time misses.
 	guestUptime map[string]lv.GuestUptime
+
+	// QGA-backed live guest OS info, keyed by domain name. Overlaid onto
+	// Domain.OS when available so the OS column reflects the OS actually
+	// running in the guest, not the install-time libosinfo metadata.
+	guestOS map[string]lv.GuestOSInfo
 
 	// host info — fetched once at startup, immutable thereafter.
 	host lv.HostInfo
@@ -367,6 +381,7 @@ func New(c backend.Backend) Model {
 		history:         make(map[string]*domHistory),
 		swap:            make(map[string]lv.SwapInfo),
 		guestUptime:     make(map[string]lv.GuestUptime),
+		guestOS:         make(map[string]lv.GuestOSInfo),
 		hostsProbe:      make(map[string]hostProbeStatus),
 		jobs:            make(map[string]*Job),
 		marks:           make(map[string]bool),
@@ -512,6 +527,12 @@ type guestUptimeMsg struct {
 	info lv.GuestUptime
 }
 
+type guestOSMsg struct {
+	uri  string
+	name string
+	info lv.GuestOSInfo
+}
+
 // ──────────────────────────── Commands ───────────────────────────────────────
 
 func tickCmd(d time.Duration) tea.Cmd {
@@ -636,6 +657,13 @@ func guestUptimeCmd(c backend.Backend, name string) tea.Cmd {
 	}
 }
 
+func guestOSCmd(c backend.Backend, name string) tea.Cmd {
+	uri := c.URI()
+	return func() tea.Msg {
+		return guestOSMsg{uri: uri, name: name, info: c.GuestOSInfo(name)}
+	}
+}
+
 // ──────────────────────────── Init ───────────────────────────────────────────
 
 func (m Model) Init() tea.Cmd {
@@ -751,7 +779,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Check for anomalies — flash a warning if any VM is hot.
 		m.checkAnomalies()
-		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime())
+		m.applyGuestOS()
+		return m, tea.Batch(m.maybeFetchSwap(), m.maybeFetchGuestUptime(), m.maybeFetchGuestOS())
 
 	case swapMsg:
 		if m.stale(msg.uri) || m.snap == nil {
@@ -777,6 +806,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.guestUptime[msg.name] = msg.info
+		return m, nil
+
+	case guestOSMsg:
+		if m.stale(msg.uri) {
+			return m, nil
+		}
+		m.guestOS[msg.name] = msg.info
+		m.applyGuestOS()
 		return m, nil
 
 	case hostLoadedMsg:
@@ -3695,6 +3732,53 @@ func (m Model) maybeFetchGuestUptime() tea.Cmd {
 		return nil
 	}
 	return guestUptimeCmd(m.client, d.Name)
+}
+
+// maybeFetchGuestOS returns a Cmd that queries QGA (guest-get-osinfo) for
+// every running VM whose cached live-OS value is stale or missing. There is
+// no host-side source for the in-guest OS, so unlike uptime this probes all
+// running VMs on both local and remote URIs. The long success TTL keeps the
+// QGA traffic negligible.
+func (m Model) maybeFetchGuestOS() tea.Cmd {
+	if m.snap == nil || m.client == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, d := range m.snap.Domains {
+		if d.State != lv.StateRunning {
+			continue
+		}
+		cached, has := m.guestOS[d.Name]
+		if has {
+			ttl := guestOSTTL
+			if !cached.Available {
+				ttl = guestOSRetryTTL
+			}
+			if time.Since(cached.FetchedAt) < ttl {
+				continue
+			}
+		}
+		cmds = append(cmds, guestOSCmd(m.client, d.Name))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// applyGuestOS overlays the live QGA-reported OS label onto the snapshot's
+// domains. Every consumer of Domain.OS (list column, header, :all view,
+// sort, filter) then sees the live value; the libosinfo metadata parsed
+// from the domain XML remains as the fallback.
+func (m *Model) applyGuestOS() {
+	if m.snap == nil {
+		return
+	}
+	for i := range m.snap.Domains {
+		if g, ok := m.guestOS[m.snap.Domains[i].Name]; ok && g.Available && g.Pretty != "" {
+			m.snap.Domains[i].OS = g.Pretty
+		}
+	}
 }
 
 // isTextInputting reports whether the user is currently typing into a

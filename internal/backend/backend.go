@@ -31,6 +31,7 @@ type Backend interface {
 	DomainInfo(name string) (lv.DomainInfo, error)
 	QueryGuestUptime(name string) lv.GuestUptime
 	Swap(name string) lv.SwapInfo
+	GuestOSInfo(name string) lv.GuestOSInfo
 
 	// Domain lifecycle
 	Start(name string) error
