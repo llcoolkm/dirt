@@ -210,9 +210,19 @@ type DHCPLease struct {
 	MAC      string
 	IP       string
 	Expiry   time.Time
+	Static   bool // true if the lease matches a <dhcp><host> reservation
 }
 
-// ListDHCPLeases returns all DHCP leases for a given network.
+// DHCPReservation is one static <host> entry in a network's <dhcp> block.
+type DHCPReservation struct {
+	MAC  string
+	Name string
+	IP   string
+}
+
+// ListDHCPLeases returns all DHCP leases for a given network. Each lease
+// is marked Static when it matches a <dhcp><host> reservation in the
+// network XML (by MAC, falling back to IP for entries without one).
 func (c *Client) ListDHCPLeases(netName string) ([]DHCPLease, error) {
 	net, err := c.conn.LookupNetworkByName(netName)
 	if err != nil {
@@ -223,6 +233,22 @@ func (c *Client) ListDHCPLeases(netName string) ([]DHCPLease, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get leases %s: %w", netName, err)
 	}
+
+	var reservations []DHCPReservation
+	if x, err := net.GetXMLDesc(0); err == nil {
+		reservations = parseDHCPReservations(x)
+	}
+	staticMAC := make(map[string]bool, len(reservations))
+	staticIP := make(map[string]bool, len(reservations))
+	for _, r := range reservations {
+		if r.MAC != "" {
+			staticMAC[strings.ToLower(r.MAC)] = true
+		}
+		if r.IP != "" {
+			staticIP[r.IP] = true
+		}
+	}
+
 	out := make([]DHCPLease, len(leases))
 	for i, l := range leases {
 		out[i] = DHCPLease{
@@ -230,9 +256,40 @@ func (c *Client) ListDHCPLeases(netName string) ([]DHCPLease, error) {
 			MAC:      l.Mac,
 			IP:       l.IPaddr,
 			Expiry:   l.ExpiryTime,
+			Static:   staticMAC[strings.ToLower(l.Mac)] || staticIP[l.IPaddr],
 		}
 	}
 	return out, nil
+}
+
+// parseDHCPReservations extracts the static <host> entries from all
+// <ip><dhcp> blocks of a network XML document.
+func parseDHCPReservations(x string) []DHCPReservation {
+	type hostTag struct {
+		MAC  string `xml:"mac,attr"`
+		Name string `xml:"name,attr"`
+		IP   string `xml:"ip,attr"`
+	}
+	type dhcpTag struct {
+		Hosts []hostTag `xml:"host"`
+	}
+	type ipTag struct {
+		DHCP dhcpTag `xml:"dhcp"`
+	}
+	type netTag struct {
+		IPs []ipTag `xml:"ip"`
+	}
+	var n netTag
+	if err := xml.Unmarshal([]byte(x), &n); err != nil {
+		return nil
+	}
+	var out []DHCPReservation
+	for _, ip := range n.IPs {
+		for _, h := range ip.DHCP.Hosts {
+			out = append(out, DHCPReservation{MAC: h.MAC, Name: h.Name, IP: h.IP})
+		}
+	}
+	return out
 }
 
 // Snapshot is one full sample of the host plus all its domains.

@@ -117,6 +117,7 @@ func (m Model) leasesView() string {
 		padRight("HOSTNAME", 20),
 		padRight("IP", 18),
 		padRight("MAC", 19),
+		padRight("TYPE", 7),
 		padRight("EXPIRY", 20),
 	}, "  "))
 
@@ -136,10 +137,17 @@ func (m Model) leasesView() string {
 			if !l.Expiry.IsZero() {
 				expiry = l.Expiry.Format("2006-01-02 15:04:05")
 			}
+			leaseType := "dynamic"
+			typeStyle := fg
+			if l.Static {
+				leaseType = "static"
+				typeStyle = stateRunning
+			}
 			row := " " + strings.Join([]string{
 				fg.Render(padRight(truncate(hostname, 20), 20)),
 				fg.Render(padRight(l.IP, 18)),
 				fg.Render(padRight(l.MAC, 19)),
+				typeStyle.Render(padRight(leaseType, 7)),
 				fg.Render(padRight(expiry, 20)),
 			}, "  ")
 			rows = append(rows, row)

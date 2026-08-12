@@ -62,6 +62,25 @@ func TestNetworksViewError(t *testing.T) {
 	}
 }
 
+func TestLeasesViewShowsStaticAndDynamicType(t *testing.T) {
+	m := networksRenderFixture(nil)
+	m.leasesFor = "default"
+	m.leases = []lv.DHCPLease{
+		{Hostname: "web-01", IP: "192.168.122.10", MAC: "52:54:00:aa:bb:cc", Static: true},
+		{Hostname: "guest", IP: "192.168.122.101", MAC: "52:54:00:11:22:33", Static: false},
+	}
+	out := stripANSI(m.leasesView())
+	if !strings.Contains(out, "TYPE") {
+		t.Errorf("leases view missing TYPE header\n%s", out)
+	}
+	if !strings.Contains(out, "static") {
+		t.Errorf("leases view missing 'static' for reserved lease\n%s", out)
+	}
+	if !strings.Contains(out, "dynamic") {
+		t.Errorf("leases view missing 'dynamic' for plain lease\n%s", out)
+	}
+}
+
 // errFake is a tiny error string for tests; defined here to avoid
 // pulling in fmt.Errorf for one assertion.
 type errFake string
