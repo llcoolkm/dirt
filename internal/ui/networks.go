@@ -128,7 +128,7 @@ func (m Model) leasesView() string {
 		rows = append(rows, "", lipgloss.NewStyle().Foreground(colDimmed).Italic(true).Render("  no active leases"))
 	} else {
 		fg := lipgloss.NewStyle().Foreground(colFG)
-		for _, l := range m.leases {
+		for i, l := range m.leases {
 			hostname := l.Hostname
 			if hostname == "" {
 				hostname = "—"
@@ -142,6 +142,17 @@ func (m Model) leasesView() string {
 			if l.Static {
 				leaseType = "static"
 				typeStyle = stateRunning
+			}
+			if i == m.leasesSel {
+				row := strings.Join([]string{
+					padRight(truncate(hostname, 20), 20),
+					padRight(l.IP, 18),
+					padRight(l.MAC, 19),
+					padRight(leaseType, 7),
+					padRight(expiry, 20),
+				}, "  ")
+				rows = append(rows, rowSelected.Render(" "+row))
+				continue
 			}
 			row := " " + strings.Join([]string{
 				fg.Render(padRight(truncate(hostname, 20), 20)),
@@ -157,9 +168,25 @@ func (m Model) leasesView() string {
 	pane := listBox.Width(width - borderWidth).Render(lipgloss.JoinVertical(lipgloss.Left,
 		append([]string{title, ""}, rows...)...))
 
-	bottom := statusBar.Width(width).Render(" " +
-		key("R") + " refresh  " + key("esc") + " back to networks")
+	bottom := leaseStatusBar(m, width)
 	return lipgloss.JoinVertical(lipgloss.Left, pane, bottom)
+}
+
+// leaseStatusBar renders the leases view's bottom bar: the confirm
+// prompt when promoting a lease, the flash line, or the key hints.
+func leaseStatusBar(m Model, width int) string {
+	if m.confirming {
+		label := friendlyConfirmAction(m.confirmAction)
+		msg := errorStyle.Render(fmt.Sprintf(" ⚠ %s “%s”? ", label, m.confirmName)) +
+			keyHint.Render("y") + statusBar.Render(" to confirm, any other key to cancel")
+		return statusBar.Width(width).Render(msg)
+	}
+	if m.flash != "" && time.Now().Before(m.flashUntil) {
+		return statusBar.Width(width).Render(" " + flashStyle.Render(m.flash))
+	}
+	return statusBar.Width(width).Render(" " +
+		key("j/k") + " nav  " + key("m") + " make static  " +
+		key("R") + " refresh  " + key("esc") + " back to networks")
 }
 
 func networkStatusBar(m Model, width int) string {

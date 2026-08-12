@@ -81,6 +81,60 @@ func TestLeasesViewShowsStaticAndDynamicType(t *testing.T) {
 	}
 }
 
+func TestLeasesKeyMArmsConfirmForDynamicLease(t *testing.T) {
+	m := networksRenderFixture(nil)
+	m.mode = viewLeases
+	m.leasesFor = "default"
+	m.leases = []lv.DHCPLease{
+		{Hostname: "guest", IP: "192.168.122.101", MAC: "52:54:00:11:22:33", Static: false},
+	}
+	model, _ := m.handleLeasesKey(keyMsg("m"))
+	m = model.(Model)
+	if !m.confirming || m.confirmAction != "make-static" {
+		t.Errorf("expected make-static confirm armed, got confirming=%v action=%q", m.confirming, m.confirmAction)
+	}
+	out := stripANSI(m.leasesView())
+	if !strings.Contains(out, "add static mapping") {
+		t.Errorf("leases status bar missing confirm prompt\n%s", out)
+	}
+}
+
+func TestLeasesKeyMRejectsStaticLease(t *testing.T) {
+	m := networksRenderFixture(nil)
+	m.mode = viewLeases
+	m.leasesFor = "default"
+	m.leases = []lv.DHCPLease{
+		{Hostname: "web-01", IP: "192.168.122.10", MAC: "52:54:00:aa:bb:cc", Static: true},
+	}
+	model, _ := m.handleLeasesKey(keyMsg("m"))
+	m = model.(Model)
+	if m.confirming {
+		t.Error("static lease must not arm the confirm prompt")
+	}
+	if !strings.Contains(m.flash, "already") {
+		t.Errorf("expected 'already static' flash, got %q", m.flash)
+	}
+}
+
+func TestLeasesNavigation(t *testing.T) {
+	m := networksRenderFixture(nil)
+	m.mode = viewLeases
+	m.leases = []lv.DHCPLease{
+		{IP: "192.168.122.101", MAC: "52:54:00:11:22:33"},
+		{IP: "192.168.122.102", MAC: "52:54:00:44:55:66"},
+	}
+	model, _ := m.handleLeasesKey(keyMsg("j"))
+	m = model.(Model)
+	if m.leasesSel != 1 {
+		t.Errorf("leasesSel = %d after j, want 1", m.leasesSel)
+	}
+	model, _ = m.handleLeasesKey(keyMsg("k"))
+	m = model.(Model)
+	if m.leasesSel != 0 {
+		t.Errorf("leasesSel = %d after k, want 0", m.leasesSel)
+	}
+}
+
 // errFake is a tiny error string for tests; defined here to avoid
 // pulling in fmt.Errorf for one assertion.
 type errFake string

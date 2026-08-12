@@ -145,6 +145,8 @@ func friendlyConfirmAction(action string) string {
 		return "stop pool"
 	case "delete-snap":
 		return "delete snapshot"
+	case "make-static":
+		return "add static mapping"
 	}
 	return action
 }

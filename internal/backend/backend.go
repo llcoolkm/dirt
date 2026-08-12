@@ -62,6 +62,7 @@ type Backend interface {
 	StopNetwork(name string) error
 	ToggleNetworkAutostart(name string) error
 	ListDHCPLeases(netName string) ([]lv.DHCPLease, error)
+	AddDHCPStaticHost(netName, mac, hostname, ip string) error
 
 	// Storage pools / volumes
 	ListStoragePools() ([]lv.StoragePool, error)

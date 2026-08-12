@@ -183,6 +183,7 @@ type Model struct {
 	// DHCP leases view state (drill-down from networks).
 	leases    []lv.DHCPLease
 	leasesFor string // network name
+	leasesSel int    // selected lease row
 	leasesErr error
 
 	// Storage pools view state.
@@ -922,6 +923,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.leases = msg.list
 		m.leasesErr = msg.err
+		if m.leasesSel >= len(m.leases) {
+			m.leasesSel = max(0, len(m.leases)-1)
+		}
 		return m, nil
 
 	case poolsLoadedMsg:
@@ -1011,6 +1015,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.flashf("✗ %s %s: %v", msg.action, msg.name, msg.err)
 		} else if msg.action == "pause" {
 			m.flashf("✓ paused %s — press p to resume", msg.name)
+		} else if msg.action == "make-static" {
+			m.flashf("✓ static mapping added for %s", msg.name)
 		} else {
 			m.flashf("✓ %s %s", msg.action, msg.name)
 		}
@@ -1024,6 +1030,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case viewNetworks:
 			cmds = append(cmds, loadNetworksCmd(m.client))
+		case viewLeases:
+			if m.leasesFor != "" {
+				cmds = append(cmds, loadLeasesCmd(m.client, m.leasesFor))
+			}
 		case viewPools:
 			cmds = append(cmds, loadPoolsCmd(m.client))
 		case viewVolumes:
@@ -1840,6 +1850,19 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				},
 				loadVolumesCmd(client, pool),
 			)
+		case "make-static":
+			if m.leasesSel >= len(m.leases) {
+				return m, nil
+			}
+			l := m.leases[m.leasesSel]
+			netName := m.leasesFor
+			client := m.client
+			// The leases reload happens in the actionResultMsg handler,
+			// after the update has actually been applied.
+			return m, func() tea.Msg {
+				err := client.AddDHCPStaticHost(netName, l.MAC, l.Hostname, l.IP)
+				return actionResultMsg{uri: client.URI(), action: "make-static", name: l.IP, err: err}
+			}
 		}
 		return m, nil
 	default:
@@ -3348,6 +3371,7 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = viewLeases
 			m.leasesFor = n.Name
 			m.leases = nil
+			m.leasesSel = 0
 			m.leasesErr = nil
 			return m, loadLeasesCmd(m.client, n.Name)
 		}
@@ -3360,6 +3384,12 @@ func (m Model) handleNetworksKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleLeasesKey handles keys while in the DHCP leases view.
 func (m Model) handleLeasesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.confirming {
+		return m.handleConfirmKey(msg)
+	}
+	if navSelect(msg.String(), &m.leasesSel, len(m.leases)) {
+		return m, nil
+	}
 	switch msg.String() {
 	case "?":
 		m.prevMode = m.mode
@@ -3367,6 +3397,21 @@ func (m Model) handleLeasesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "esc", "q":
 		m.mode = viewNetworks
+		return m, nil
+	case "m":
+		// Promote the selected dynamic lease to a static mapping.
+		if m.leasesSel >= len(m.leases) {
+			return m, nil
+		}
+		l := m.leases[m.leasesSel]
+		if l.Static {
+			m.flash = "lease is already a static mapping"
+			m.flashUntil = time.Now().Add(2 * time.Second)
+			return m, nil
+		}
+		m.confirming = true
+		m.confirmAction = "make-static"
+		m.confirmName = fmt.Sprintf("%s → %s", l.MAC, l.IP)
 		return m, nil
 	case "R", "F5":
 		return m, loadLeasesCmd(m.client, m.leasesFor)

@@ -150,6 +150,15 @@ func (m Model) helpView() string {
 			},
 		},
 		{
+			title: "Leases view",
+			rows: []helpRow{
+				{"j / k", "navigate leases"},
+				{"m", "make lease a static mapping (asks y)"},
+				{"R / F5", "refresh list"},
+				{"esc / q", "back to networks"},
+			},
+		},
+		{
 			title: "Pools view",
 			rows: []helpRow{
 				{"j / k", "navigate pools"},

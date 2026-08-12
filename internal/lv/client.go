@@ -262,6 +262,37 @@ func (c *Client) ListDHCPLeases(netName string) ([]DHCPLease, error) {
 	return out, nil
 }
 
+// AddDHCPStaticHost adds a <dhcp><host> reservation for the given MAC/IP
+// pair (hostname optional) to the named network, via the libvirt network
+// update API. Active networks are updated both live and in the persistent
+// config, so the mapping takes effect immediately and survives a network
+// restart; inactive networks get the config change only.
+func (c *Client) AddDHCPStaticHost(netName, mac, hostname, ip string) error {
+	if mac == "" || ip == "" {
+		return fmt.Errorf("static mapping needs both MAC and IP")
+	}
+	return c.withNetwork(netName, func(n *libvirt.Network) error {
+		hostXML := fmt.Sprintf("<host mac='%s'", xmlEscape(mac))
+		if hostname != "" {
+			hostXML += fmt.Sprintf(" name='%s'", xmlEscape(hostname))
+		}
+		hostXML += fmt.Sprintf(" ip='%s'/>", xmlEscape(ip))
+
+		flags := libvirt.NETWORK_UPDATE_AFFECT_CONFIG
+		if active, err := n.IsActive(); err == nil && active {
+			flags |= libvirt.NETWORK_UPDATE_AFFECT_LIVE
+		}
+		// parentIndex -1 lets libvirt pick the (single) matching <ip>
+		// element that carries the dhcp block.
+		err := n.Update(libvirt.NETWORK_UPDATE_COMMAND_ADD_LAST,
+			libvirt.NETWORK_SECTION_IP_DHCP_HOST, -1, hostXML, flags)
+		if err != nil {
+			return fmt.Errorf("add static mapping %s → %s on %s: %w", mac, ip, netName, err)
+		}
+		return nil
+	})
+}
+
 // parseDHCPReservations extracts the static <host> entries from all
 // <ip><dhcp> blocks of a network XML document.
 func parseDHCPReservations(x string) []DHCPReservation {
